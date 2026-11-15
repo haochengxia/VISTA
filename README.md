@@ -193,6 +193,22 @@ export BABYVISION_ROOT="$PWD/local/BabyVision"
   --subtypes 'Maze|Connect the lines'
 ```
 
+### CacheLab
+
+CacheLab is a research task rather than a game: the agent improves the S3-FIFO
+cache eviction policy through linked visual views (capacity × time heatmaps,
+queue replay, object timelines, A/B diffs). It predicts each experiment's
+effect and checks the prediction, and its submission is scored on held-out
+workloads by verified simulation. See [docs/cachelab.md](docs/cachelab.md).
+
+```bash
+.venv/bin/python -m pip install -e '.[cachelab]'
+docker pull python:3.12-slim
+
+.venv/bin/vista --profile cachelab --backend claude run --arm vista \
+  --model opus --effort xhigh --max-experiments 12 --output runs/cachelab-vista
+```
+
 ## Citation
 
 ```bibtex

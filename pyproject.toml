@@ -37,12 +37,16 @@ gameworld = [
 aigamestore = [
   "playwright==1.45.0",
 ]
+cachelab = [
+  "matplotlib>=3.9,<4",
+]
 babyvision = [
   # The official answer extraction uses the `regex` engine's recursive groups.
   "regex>=2024.11",
 ]
 dev = [
   "ruff==0.16.3",
+  "pytest>=8",
 ]
 
 [project.scripts]
@@ -50,6 +54,7 @@ vista = "vista.cli:main"
 vista-gameworld = "vista.benchmarks.gameworld.cli:main"
 vista-aigamestore = "vista.benchmarks.aigamestore.cli:main"
 vista-babyvision = "vista.benchmarks.babyvision.cli:main"
+vista-cachelab = "vista.benchmarks.cachelab.cli:main"
 
 [project.urls]
 Homepage = "https://vista-research.github.io/"
@@ -57,6 +62,7 @@ Homepage = "https://vista-research.github.io/"
 [tool.setuptools.package-data]
 vista = ["core/prompts/*.md", "benchmarks/arc3/codex/*.md", "benchmarks/arc3/claude/*.md"]
 "vista.benchmarks.aigamestore" = ["public_games.json"]
+"vista.benchmarks.cachelab" = ["sandbox/*.py"]
 
 [tool.ruff]
 target-version = "py312"

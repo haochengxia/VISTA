@@ -14,7 +14,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--profile",
-        choices=("arc3", "gameworld", "aigamestore", "babyvision"),
+        choices=("arc3", "gameworld", "aigamestore", "babyvision", "cachelab"),
         required=True,
     )
     parser.add_argument("--backend", choices=("codex", "claude"), required=True)
@@ -22,7 +22,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
     selection, remaining = parser.parse_known_args(arguments)
-    if selection.profile != "arc3" and selection.backend != "codex":
+    if selection.profile not in {"arc3", "cachelab"} and selection.backend != "codex":
         parser.error(f"--profile {selection.profile} requires --backend codex")
     if remaining[:1] == ["--"]:
         remaining = remaining[1:]
@@ -30,6 +30,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .benchmarks.arc3 import backend_module
 
         return backend_module(selection.backend).main(remaining)
+    if selection.profile == "cachelab":
+        from .benchmarks.cachelab.cli import main as cachelab_main
+
+        return cachelab_main([*remaining, "--backend", selection.backend])
     if selection.profile == "babyvision":
         from .benchmarks.babyvision.cli import main as babyvision_main
 
