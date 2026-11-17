@@ -1,0 +1,5 @@
+one trace: 15.4M requests, capacities [2211, 6632, 22108, 66324]
+  C=2211: libCacheSim S3-FIFO 11.5s, 3L-Cache 73.4s (6.4x) | vqsim S3-FIFO 1.8s, v1 13.9s (7.9x)
+  C=6632: libCacheSim S3-FIFO 10.4s, 3L-Cache 35.8s (3.4x) | vqsim S3-FIFO 1.3s, v1 4.2s (3.3x)
+  C=22108: libCacheSim S3-FIFO 8.3s, 3L-Cache 24.6s (3.0x) | vqsim S3-FIFO 0.9s, v1 2.6s (2.8x)
+  C=66324: libCacheSim S3-FIFO 7.6s, 3L-Cache 21.6s (2.8x) | vqsim S3-FIFO 1.0s, v1 1.7s (1.7x)

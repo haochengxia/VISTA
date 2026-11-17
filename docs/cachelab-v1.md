@@ -116,6 +116,19 @@ All of these are on train-long unless marked held-out. Logs are in `scripts/vqsi
 - So v1 fits the 2× limit for caches of about 20,000 objects and more. Below that, the fixed floor (32 × 200 objects) dominates.
 - **Open question for the project.** Is the limit purely relative, or relative plus a small constant? Storing ghost and miniature-cache entries as fingerprints would also cut this.
 
+## CPU
+
+Each policy's cost relative to S3-FIFO in its own simulator, measured on one train-long trace (15.4M requests), single thread, with `scripts/vqsim/study/vq_cpu.py` (2026-11-17):
+
+| cache size | 3L-Cache / S3-FIFO (libCacheSim, `process_trace`) | v1 / S3-FIFO (vqsim) |
+|---|---|---|
+| 2,211 | 6.4× | 7.9× |
+| 6,632 | 3.4× | 3.3× |
+| 22,108 | 3.0× | 2.8× |
+| 66,324 | 2.8× | 1.7× |
+
+v1 costs about what 3L-Cache costs. It is cheaper only at large caches; at small ones the floor of 200 objects per miniature simulation makes its 32 sampled simulations as expensive as 3L-Cache's model, or more. So v1 has no clear CPU advantage. In both simulators the overhead is per request, against an S3-FIFO that is 8× faster in vqsim than in libCacheSim.
+
 ## Caveats
 
 - **Held-out reuse.** heldout-long has been used for four pre-registered tests: idealized, seeds portfolio, candidate sets, and v1. Each was fixed before it ran, but reporting the best of them is mild selection. A fresh suite should decide the open-source question.
