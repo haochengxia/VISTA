@@ -61,6 +61,11 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--exclude-suite", type=Path, action="append", default=[], help="build-suite: suites whose files to skip")
     root.add_argument("--max-mb", type=int, help="build-suite: prefer files at most this size")
     root.add_argument(
+        "--full-length",
+        help="build-suite: LOW:HIGH; use whole traces (not a --requests prefix) whose request count is in this range",
+    )
+    root.add_argument("--name-prefix", help="build-suite: trace name prefix (default dev or ho)")
+    root.add_argument(
         "--view",
         action="append",
         default=[],
@@ -73,7 +78,14 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--model")
     root.add_argument("--effort")
     root.add_argument("--max-experiments", type=int, default=DEFAULT_EXPERIMENTS)
-    root.add_argument("--role", choices=("designer", "engineer", "analyst"), default="designer")
+    root.add_argument("--role", choices=("designer", "engineer", "analyst", "architect"), default="designer")
+    root.add_argument("--board", type=Path, help="architect: shared board directory (families, findings, cached vqsim runs)")
+    root.add_argument("--vq-suite", type=Path, help="architect: directory of cells (ids.u32 + meta.json per trace)")
+    root.add_argument("--vqsim", type=Path, help="architect: vqsim binary (scripts/vqsim/vqsim.c)")
+    root.add_argument("--vq-slots", type=int, default=16, help="architect: vqsim processes at once, machine-wide")
+    root.add_argument("--author", help="architect: this architect's name on the board")
+    root.add_argument("--objective", choices=("static", "online"), default="static", help="architect: what the board scores (online: the selector's portfolio)")
+    root.add_argument("--direction", help="architect: the design direction this architect starts from")
     root.add_argument("--shots", action="store_true", help="reference policies plus worked examples from the literature")
     root.add_argument("--target-suite", type=Path, help="engineer: suite file holding the target workload")
     root.add_argument("--target", help="engineer: name of the target in --target-suite")
@@ -84,6 +96,11 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--experience", type=Path, help="engineer: experience library directory (written with --train)")
     root.add_argument("--train", action="store_true", help="engineer: training run; feedback after commit_decision, adds a case")
     root.add_argument("--baselines", type=Path, help="engineer: engineer-baselines report, or a directory of them named <target>.json")
+    root.add_argument(
+        "--tuned-reference", action="store_true",
+        help="engineer: offer the prefix-tuned S3-FIFO (from --baselines) as the reference s3fifo-tuned. Off by default: "
+        "its deep ghost queues (GHOST_RATIO 1.5-2.0) use 2.3-3x S3-FIFO's memory on real traces, over the limit",
+    )  # fmt: skip
     root.add_argument("--from", dest="sources", type=Path, action="append", default=[], help="merge-experience: a library to merge")
     root.add_argument("--output", type=Path, help="run: new directory for the run")
     root.add_argument("--backend-segments", type=int, default=60)
@@ -91,7 +108,17 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
-SHOT_REFERENCES = ("s4fifo", "mq", "lru", "fifo")
+SHOT_REFERENCES = ("s4fifo", "mq", "lru", "fifo", "arc", "lirs", "twoq", "wtinylfu", "clock", "sieve")
+# Wall-clock limit of one agent process. The transport's default scales with the
+# action budget (300 s per action), which suits games but not a lab session: a
+# 1-experiment test run spends most of its time on views and analysis, and a
+# flaky model gateway can add many minutes of retries. A process that hits the
+# limit is replaced by a fresh one without the conversation, so err long.
+SEGMENT_TIMEOUT_SECONDS = 4 * 3600
+# A tool call sends nothing until it returns. On whole traces of tens of millions
+# of requests, a verified scoring (commit_decision) or a first knob sweep can
+# outlast Claude Code's 30-minute idle limit for tool calls.
+TOOL_IDLE_TIMEOUT_SECONDS = 3 * 3600
 
 
 def make_sandbox(args: argparse.Namespace):
@@ -150,24 +177,40 @@ def make_engineer(args: argparse.Namespace, cli, references: tuple[str, ...] = (
     workers = args.workers or 1
     baselines = load_baselines(args, spec, cli)
     zoo_dir = args.lab_dir / "zoo"
+    configs = engineer.tuned_configs(baselines, task.capacities) if getattr(args, "tuned_reference", False) else None
+    if configs:
+        # The prefix-tuned baseline as a free reference: a floor the agent can deploy or build on.
+        from .lab import TUNED_REFERENCE
+
+        lab.record(
+            TUNED_REFERENCE,
+            "S3-FIFO tuned per cache size on the observed part",
+            engineer.tuned_reference_source(configs),
+            "S3-FIFO with knobs chosen per cache size by a search on the observed part",
+        )
 
     def verified(lab_: Lab, identity: str) -> dict:
         return engineer.evaluate(lab_, task, identity, zoo_dir=zoo_dir, workers=workers, baselines=baselines)
 
-    feedback: dict[str, dict] = {}
+    feedback: dict[tuple[str, bool], dict] = {}
 
-    def fast(identity: str) -> dict:
+    def train_feedback(identity: str, verified: bool = False) -> dict:
         # Memoized: the scored arrays are dropped, so a second call would simulate again.
-        if identity not in feedback:
-            feedback[identity] = engineer.evaluate(
-                lab, task, identity, zoo_dir=zoo_dir, workers=workers, baselines=baselines, verified=False, keep_arrays=False
+        # The committed decision is scored verified (memory, tampering), like a test
+        # run; the host's counterfactuals of every other experiment are fast.
+        checked = feedback.get((identity, True))
+        if not verified and checked is not None and not checked["failures"]:
+            return checked  # same misses; no need to simulate it again
+        if (identity, verified) not in feedback:
+            feedback[(identity, verified)] = engineer.evaluate(
+                lab, task, identity, zoo_dir=zoo_dir, workers=workers, baselines=baselines, verified=verified, keep_arrays=False
             )
-        return feedback[identity]
+        return feedback[(identity, verified)]
 
-    record = {"target": spec.manifest(), "split": task.split, "split_fraction": task.fraction, "capacities": list(task.capacities)}
+    record = {"target": spec.manifest(), "requests": task.full.requests, "split": task.split, "split_fraction": task.fraction, "capacities": list(task.capacities)}
     if args.train:
-        # A training run is scored by the feedback it got (cached, so this costs nothing).
-        return lab, (lambda lab_, identity: fast(identity)), record, fast
+        # A training run is scored by the verified feedback its decision got (cached, so this costs nothing).
+        return lab, (lambda lab_, identity: train_feedback(identity, verified=True)), record, train_feedback
     return lab, verified, record, None
 
 
@@ -267,6 +310,8 @@ def cmd_run(args, cli) -> int:
         cli.error("agent runs execute agent-written code; use --sandbox docker, or pass --unsafe-local-sandbox")
     validate_backend_arguments(args, cli.error)
     transport = transport_for(args.backend)
+    if args.role == "architect":
+        return cmd_run_architect(args, cli, transport)
     references = SHOT_REFERENCES if args.shots else ()
     if args.role == "designer" and (args.train or args.experience or args.baselines):
         cli.error("--train, --experience and --baselines belong to the engineer and analyst roles")
@@ -336,6 +381,10 @@ def cmd_run(args, cli) -> int:
         cli.error("run requires a new --output directory")
     from .run import run_task
 
+    if args.task_timeout is None:
+        args.task_timeout = SEGMENT_TIMEOUT_SECONDS
+    if getattr(args, "claude_tool_idle_timeout", None) is None:
+        args.claude_tool_idle_timeout = TOOL_IDLE_TIMEOUT_SECONDS
     backend_factory, provenance = prepare_backend(args, cli.error)
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     result = run_task(
@@ -364,6 +413,45 @@ def cmd_run(args, cli) -> int:
     return 0 if result.get("submitted") else 1
 
 
+def cmd_run_architect(args, cli, transport: str) -> int:
+    from vista.backends.launch import prepare_backend
+
+    from .architect import ArchitectSession, Board, make_profile, run_architect
+
+    if not (args.board and args.vq_suite and args.vqsim and args.author):
+        cli.error("the architect role needs --board, --vq-suite, --vqsim and --author")
+    board = Board(args.board, args.vq_suite, args.vqsim, slots=args.vq_slots, objective=args.objective)
+    if args.command == "plan":
+        session = ArchitectSession(board, author=args.author, max_evaluations=args.max_experiments, direction=args.direction)
+        profile = make_profile(backend=transport, max_evaluations=args.max_experiments, initial=session.initial, objective=args.objective)
+        _write_json(None, {"system_prompt": profile.prompts.system, "initial_prompt": session.initial, "tools": [b.spec.public_definition() for b in session.tools]})
+        return 0
+    if args.output is None:
+        cli.error("run requires a new --output directory")
+    if args.task_timeout is None:
+        args.task_timeout = SEGMENT_TIMEOUT_SECONDS
+    if getattr(args, "claude_tool_idle_timeout", None) is None:
+        args.claude_tool_idle_timeout = TOOL_IDLE_TIMEOUT_SECONDS
+    backend_factory, provenance = prepare_backend(args, cli.error)
+    args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
+    result = run_architect(
+        board,
+        directory=args.output / "task",
+        backend=transport,
+        model=args.model,
+        effort=args.effort,
+        backend_factory=backend_factory,
+        max_evaluations=args.max_experiments,
+        author=args.author,
+        direction=args.direction,
+        backend_segments=args.backend_segments,
+        tool_calls=args.tool_calls,
+        transport_provenance=provenance,
+    )
+    print(json.dumps({key: result.get(key) for key in ("submitted", "evaluated", "error", "elapsed_seconds")}, indent=2))
+    return 0 if result.get("submitted") else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     cli = parser()
     args = cli.parse_args(argv)
@@ -378,6 +466,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.data_root is None or not args.datasets or args.out is None:
             cli.error("build-suite needs --data-root, --datasets and --out")
         exclude = {spec.source for path in args.exclude_suite for spec in load_suite(path) if spec.source}
+        full_length = None
+        if args.full_length:
+            try:
+                low, high = (int(float(part)) for part in args.full_length.split(":"))
+            except ValueError:
+                cli.error("--full-length is LOW:HIGH, e.g. 10e6:50e6")
+            if not 0 < low <= high:
+                cli.error("--full-length needs 0 < LOW <= HIGH")
+            full_length = (low, high)
         specs = sample_real_suite(
             args.data_root,
             split=args.split,
@@ -388,6 +485,8 @@ def main(argv: list[str] | None = None) -> int:
             exclude=exclude,
             max_bytes=None if args.max_mb is None else args.max_mb << 20,
             neutral_names=args.split == "dev",
+            full_length=full_length,
+            name_prefix=args.name_prefix,
         )
         save_suite(args.out, specs)
         print(f"wrote {len(specs)} traces to {args.out}")

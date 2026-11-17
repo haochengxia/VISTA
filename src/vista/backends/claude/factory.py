@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,10 @@ from ..binding import (
 )
 from ..session import BackendSession, preflight, prepare_directory
 from .provider import ANTHROPIC_PROVIDER, ClaudeCodeProvider
+
+# A flaky gateway (502s, rate limits) can stall the one-word preflight past its
+# timeout; retry it with backoff instead of failing the whole run.
+PREFLIGHT_BACKOFF_SECONDS = (30, 120, 300)
 
 
 def create_backend(
@@ -87,12 +92,21 @@ def create_backend(
     )
 
     def confirm_model() -> None:
+        for attempt, delay in enumerate((*PREFLIGHT_BACKOFF_SECONDS, None)):
+            try:
+                return preflight_once("" if attempt == 0 else f"-{attempt + 1}")
+            except RuntimeError:
+                if delay is None:
+                    raise
+                time.sleep(delay)
+
+    def preflight_once(suffix: str) -> None:
         from .preflight import run_runtime_preflight
 
         result, concrete = run_runtime_preflight(
             visible_dir=visible,
-            config_dir=state / "preflight",
-            io_dir=io / "preflight",
+            config_dir=state / f"preflight{suffix}",
+            io_dir=io / f"preflight{suffix}",
             claude_bin=runner.claude_bin,
             model=runner.model,
             effort=runner.effort,

@@ -55,15 +55,39 @@ def best_dev_experiment(lab: Lab) -> str | None:
     return min(scored)[1] if scored else None
 
 
-def counterfactuals(lab: Lab, train_feedback: Callable[[str], dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every completed experiment of a training run, scored on the rest of the
+# Host budget for hindsight scoring of one training run, in simulated requests
+# (full trace x cache sizes per experiment): at ~100K requests/s, about 3 CPU-hours.
+# 1M-request workloads stay far below it; 50M-request ones would not.
+COUNTERFACTUAL_REQUESTS = 1_000_000_000
+
+
+def counterfactuals(
+    lab: Lab,
+    train_feedback: Callable[[str], dict[str, Any]],
+    *,
+    decision: str | None = None,
+    cost: int = 0,
+    budget: int = COUNTERFACTUAL_REQUESTS,
+) -> list[dict[str, Any]]:
+    """Completed experiments of a training run, scored on the rest of the
     workload. Host-side data for learning decisions later; the agent never sees
-    it. Fast simulation, so each costs one full-trace run per cache size."""
+    it. Fast simulation, so each costs `cost` simulated requests (one full-trace
+    run per cache size). S3-FIFO and the committed decision (already scored)
+    come first, then the agent's experiments best first by their change on the
+    observed part, then references, while the budget lasts. Records say whether
+    every experiment was scored."""
     base = lab.experiment(BASELINE)
+    done = [e for e in lab.experiments.values() if e.ok]
+    first = [e for e in done if e.id in (BASELINE, decision)]
+    rest = sorted(
+        (e for e in done if e.id not in (BASELINE, decision)),
+        key=lambda e: (lab.is_reference(e.id), lab.compare(e, base)["mean_relative_change"]),
+    )
+    allowed = len(first) + (len(rest) if cost <= 0 else max(0, budget // cost - len(first)))
+    chosen = (first + rest)[:allowed]
+    complete = len(chosen) == len(done)
     records = []
-    for experiment in lab.experiments.values():
-        if not experiment.ok:
-            continue
+    for experiment in chosen:
         report = train_feedback(experiment.id)
         records.append(
             {
@@ -77,6 +101,7 @@ def counterfactuals(lab: Lab, train_feedback: Callable[[str], dict[str, Any]]) -
                     for row in report["rows"]
                 ],
                 "mean_relative_vs_s3fifo": report["mean_relative_vs_s3fifo"],
+                "complete": complete,
             }
         )
     return records
@@ -200,7 +225,10 @@ def run_task(
         session_result = session.result()
     if train:
         try:
-            session_result["counterfactuals"] = counterfactuals(lab, train_feedback)
+            record = task_record or {}
+            cost = int(record.get("requests") or 0) * len(record.get("capacities") or [])
+            decision = (session_result.get("training_feedback") or {}).get("experiment")
+            session_result["counterfactuals"] = counterfactuals(lab, train_feedback, decision=decision, cost=cost)
         except Exception:
             artifacts.record("private_failure", {"traceback": traceback.format_exc()})
     evaluation: dict[str, Any] = {}

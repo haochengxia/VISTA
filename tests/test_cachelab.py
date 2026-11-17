@@ -8,14 +8,21 @@ evidence archiving, inspect/read_pixels/history, submission) without a model.
 from __future__ import annotations
 
 import json
+import statistics
+import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from vista.benchmarks.cachelab import traces
-from vista.benchmarks.cachelab.engine import BASELINE_SOURCE, SANDBOX_DIR, LocalSandbox
-from vista.benchmarks.cachelab.lab import BASELINE, Lab
+from vista.benchmarks.cachelab.engine import (
+    BASELINE_SOURCE,
+    SANDBOX_DIR,
+    LocalSandbox,
+    Run,
+)
+from vista.benchmarks.cachelab.lab import BASELINE, Lab, LabError
 from vista.benchmarks.cachelab.policy_check import check_policy
 from vista.benchmarks.cachelab.profiles import make_experiment, make_profile
 from vista.benchmarks.cachelab.run import score
@@ -99,6 +106,252 @@ def test_mq_matches_libcachesim(lab: Lab) -> None:
         assert run.summary["misses"] == expected, (name, capacity)
         assert run.summary["instrumentation_errors"] == 0
         assert run.summary["size_mismatches"] == 0
+
+
+@pytest.mark.parametrize("name, published", [("clock", "CLOCK"), ("sieve", "SIEVE"), ("twoq", "2Q"), ("arc", "ARC"), ("lirs", "LIRS"), ("wtinylfu", "W-TinyLFU")])
+def test_published_ports_match_libcachesim(tmp_path, name, published) -> None:
+    """The sandbox's Python ports miss like libCacheSim's originals (W-TinyLFU's sketch differs in detail)."""
+    libcachesim = pytest.importorskip("libcachesim")
+    import importlib
+
+    from vista.benchmarks.cachelab import zoo
+    from vista.benchmarks.cachelab.engine import SANDBOX_DIR
+
+    if str(SANDBOX_DIR) not in sys.path:
+        sys.path.append(str(SANDBOX_DIR))
+    from policy_api import Context
+
+    rng = np.random.default_rng(1)
+    keys = (rng.zipf(1.2, size=60_000) % 8_000).astype(np.int64)
+    keys[rng.choice(keys.size, size=keys.size // 5, replace=False)] = np.arange(10**6, 10**6 + keys.size // 5)  # one-hit scan
+    path = tmp_path / "trace.oracleGeneral"
+    zoo.write_oracle_general(keys, path)
+    for capacity in (200, 800):  # libCacheSim's W-TinyLFU has no window below 100 objects (1%)
+        policy, resident, mine = importlib.import_module(name).CachePolicy(capacity, Context()), set(), 0
+        for now, key in enumerate(keys.tolist()):
+            if key in resident:
+                policy.on_hit(key, now)
+                continue
+            mine += 1
+            if policy.on_miss(key, now):
+                while len(resident) >= capacity:
+                    resident.remove(policy.evict(now))
+                policy.insert(key, now)
+                resident.add(key)
+            assert sum(policy.sizes()[queue] for queue in policy.QUEUES) == len(resident)
+        cache = zoo.ALGORITHMS[published](libcachesim, capacity)
+        theirs = sum(not cache.get(request) for request in libcachesim.TraceReader(str(path), libcachesim.TraceType.ORACLE_GENERAL_TRACE))
+        assert abs(mine - theirs) / theirs < (0.05 if name == "wtinylfu" else 0.005), (name, capacity, mine, theirs)
+
+
+def test_published_ports_take_over_a_live_cache(lab: Lab) -> None:
+    from vista.benchmarks.cachelab.engine import PUBLISHED_PORTS
+
+    trace = lab.dev["dev-2"]
+    cells = [(trace, capacity) for capacity in lab.capacities["dev-2"]]
+    for name in PUBLISHED_PORTS:
+        result = lab.store.simulate(f"from {name} import CachePolicy\n", cells, verified=True, handover=0.5)
+        assert all(isinstance(run, Run) for run in result.values()), (name, result)
+
+
+def test_published_ports_fit_the_memory_limit_with_room() -> None:
+    """Measured like the sandbox (tracemalloc, allocations in the sandbox's files) on a
+    cache big enough that per-object state dominates: about 0.6-1.4x S3-FIFO."""
+    import importlib
+    import tracemalloc
+
+    from vista.benchmarks.cachelab.engine import PUBLISHED_PORTS
+
+    if str(SANDBOX_DIR) not in sys.path:
+        sys.path.append(str(SANDBOX_DIR))
+    from policy_api import Context
+
+    keys = (np.random.default_rng(2).zipf(1.1, size=120_000) % 60_000).astype(np.int64).tolist()
+
+    def footprint(module: str, capacity: int = 5_000) -> int:
+        tracemalloc.start()
+        policy, resident = importlib.import_module(module).CachePolicy(capacity, Context()), set()
+        for now, key in enumerate(keys):
+            if key in resident:
+                policy.on_hit(key, now)
+            elif policy.on_miss(key, now):
+                while len(resident) >= capacity:
+                    resident.remove(policy.evict(now))
+                policy.insert(key, now)
+                resident.add(key)
+        snapshot = tracemalloc.take_snapshot().filter_traces([tracemalloc.Filter(True, f"{SANDBOX_DIR}/*")])
+        tracemalloc.stop()
+        return sum(stat.size for stat in snapshot.statistics("filename"))
+
+    base = footprint("s3fifo")
+    ratios = {name: footprint(name) / base for name in PUBLISHED_PORTS}
+    ratios["vq"] = footprint("vq") / base
+    assert all(ratio <= 1.6 for ratio in ratios.values()), ratios
+
+
+VQ_DESIGNS = {  # vqsim config strings: a skip region, a two-level main, D-FR and AGE stages
+    "skip": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.03,0,0,1,1,-1,0 st=0.07,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0",
+    "hot": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=1 gfreq=1 st=0.1,1,2,2,0,-1,1 st=0.3,1,1,1,3,2,0 st=0,1,2,1,2,-1,0",
+    "timed": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1,0.05 st=0,1,1,1,2,-1,0,0.05,1.0",
+}
+
+
+def _vq_source(config: str) -> str:
+    return f"from vq import design\n\nCachePolicy = design({config!r})\n"
+
+
+def test_vq_defaults_are_s3fifo_and_designs_take_over(lab: Lab) -> None:
+    cells = [(trace, capacity) for name, trace in lab.dev.items() for capacity in lab.capacities[name]]
+    base = lab.experiment(BASELINE).cells
+    for handover in (None, 0.3):
+        same = lab.store.simulate("from vq import VQ as CachePolicy\n", cells, handover=handover)
+        for cell, run in same.items():
+            assert np.array_equal(run.outcome, base[cell].outcome), (cell, handover)
+    for name, config in VQ_DESIGNS.items():
+        for verified in (False, True):
+            result = lab.store.simulate(_vq_source(config), cells, handover=0.3, verified=verified)
+            for cell, run in result.items():
+                assert isinstance(run, Run), (name, run)
+                assert run.summary["instrumentation_errors"] == 0 and run.summary["size_mismatches"] == 0, (name, cell)
+        assert any(result[cell].summary["misses"] != base[cell].summary["misses"] for cell in result), name
+    # Online re-choice among the designs (exact shadows, a short period so it switches).
+    online = (
+        "from vq import OnlineVQ\n\n\nclass CachePolicy(OnlineVQ):\n"
+        f"    CANDIDATES = {('maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0', *VQ_DESIGNS.values())!r}\n"
+        "    PERIOD = 2000\n    RATE = 1.0\n    START = 1\n"
+    )
+    for handover in (None, 0.3):
+        result = lab.store.simulate(online, cells, handover=handover)
+        for cell, run in result.items():
+            assert isinstance(run, Run), (handover, run)
+            assert run.summary["instrumentation_errors"] == 0 and run.summary["size_mismatches"] == 0, (handover, cell)
+
+
+def test_vq_v1_is_the_frozen_portfolio_and_runs() -> None:
+    if str(SANDBOX_DIR) not in sys.path:
+        sys.path.append(str(SANDBOX_DIR))
+    from policy_api import Context
+    from vq import S3_CONFIG, V1_CANDIDATES, OnlineV1
+
+    frozen = json.loads((Path(__file__).parents[1] / "scripts/vqsim/v1/portfolio.json").read_text())["portfolio"]
+    assert list(V1_CANDIDATES) == frozen and len(frozen) == 32 and frozen[0] == S3_CONFIG
+    assert len(OnlineV1.DESIGNS) == 32 and OnlineV1.QUEUES == tuple(f"Q{i}" for i in range(len(OnlineV1.QUEUES)))
+    dense = _shifting_trace(24_000, 8, 3)
+    policy, resident = type("Short", (OnlineV1,), {"PERIOD": 600, "START": 2})(1_000, Context()), set()
+    for now, key in enumerate(dense.tolist()):
+        if key in resident:
+            policy.on_hit(key, now)
+            continue
+        policy.on_miss(key, now)
+        while len(resident) >= 1_000:
+            resident.remove(policy.evict(now))
+        policy.insert(key, now)
+        resident.add(key)
+        assert len(resident) == sum(policy.sizes()[name] for name in policy.QUEUES)
+    assert policy.current >= 0 and policy.rate == pytest.approx(0.2)
+
+
+def _shifting_trace(n: int, segments: int, seed: int) -> np.ndarray:
+    """Dense ids whose popularity and scan share change every n / segments requests."""
+    rng = np.random.default_rng(seed)
+    parts = []
+    for i in range(segments):
+        a, m = [(1.3, 3000), (0.9, 6000), (1.2, 2000), (1.0, 9000)][i % 4]
+        size = n // segments
+        keys = (rng.zipf(1.0 + a, size=size) % m).astype(np.int64) if a > 1 else rng.integers(0, m, size=size)
+        keys = (keys * 7 + (i % 2) * 100_000) % 20_011 + (i % 2) * 50_000
+        scan = rng.random(size) < (0.5 if i % 2 else 0.0)
+        keys[scan] = 10**6 + i * n + np.arange(scan.sum())
+        parts.append(keys)
+    return np.unique(np.concatenate(parts), return_inverse=True)[1]
+
+
+def test_vq_matches_vqsim(tmp_path) -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    if str(SANDBOX_DIR) not in sys.path:
+        sys.path.append(str(SANDBOX_DIR))
+    from policy_api import Context
+    from vq import design
+
+    rng = np.random.default_rng(4)
+    keys = (rng.zipf(1.15, size=40_000) % 8_000).astype(np.int64)
+    keys[rng.choice(keys.size, keys.size // 6, replace=False)] = np.arange(10**6, 10**6 + keys.size // 6)
+    _, dense = np.unique(keys, return_inverse=True)
+    (tmp_path / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+    split = keys.size // 5
+    cases = [(capacity, config) for capacity in (100, 900) for config in ("maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0", *VQ_DESIGNS.values())]
+    (tmp_path / "jobs").write_text("".join(f"{capacity} {split} 0 {config}\n" for capacity, config in cases))
+    lines = subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True).stdout.splitlines()
+    for (capacity, config), line in zip(cases, lines, strict=True):
+        policy, resident, misses = design(config)(capacity, Context()), set(), [0, 0]
+        for now, key in enumerate(dense.tolist()):
+            if key in resident:
+                policy.on_hit(key, now)
+                continue
+            misses[now >= split] += 1
+            policy.on_miss(key, now)
+            while len(resident) >= capacity:
+                resident.remove(policy.evict(now))
+            policy.insert(key, now)
+            resident.add(key)
+        assert [int(x) for x in line.split()[:2]] == misses, (capacity, config)
+    # Online mode: committing to one design at the split is that design's handover run; switching runs.
+    configs = list(VQ_DESIGNS.values())
+    block = f"online 900 {split} 40 schedule=s:1\n" + "".join(c + "\n" for c in configs) + "end\n"
+    switching = f"online 900 {split} 40 schedule=s:0,20:2,30:1\n" + "".join(c + "\n" for c in configs) + "end\n"
+    shadows = f"online 900 {split} 40 rate=0.2 min=50\n" + "".join(c + "\n" for c in configs) + "end\n"
+    (tmp_path / "jobs").write_text(f"900 {split} 0 {configs[1]} handover=1\n" + block + switching + shadows)
+    ho, one, sw, mini = subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True).stdout.splitlines()
+    assert one.split()[:3] == ho.split()[:2] + ["0"]
+    assert sw.split()[2] == "2" and len(sw.split()) == 43 and len(mini.split()) == 43
+    # OnlineVQ reproduces the online mode: miniature simulations, hysteresis, start without a handover.
+    from policy_api import Handover
+    from vq import VQ, OnlineVQ
+
+    dense = _shifting_trace(40_000, 8, 7)
+    (tmp_path / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+    from vista.benchmarks.cachelab.architect import S3_CONFIG
+
+    candidates = [S3_CONFIG, *VQ_DESIGNS.values(), "maxf=1 ghost=1.5 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,0,-1,0 asmall=1"]
+    heads = [("rate=0.2 min=50", 0.2, 0.0, True), ("rate=0.2 min=50 margin=0.02", 0.2, 0.02, True), ("rate=1 start=4", 1.0, 0.0, False)]
+    (tmp_path / "jobs").write_text("".join(f"online 900 8000 40 {head}\n" + "".join(c + "\n" for c in candidates) + "end\n" for head, *_ in heads))
+    lines = subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True).stdout.splitlines()
+    switched = 0
+    for (head, rate, margin, handover), line in zip(heads, lines, strict=True):
+        cls = type("Online", (OnlineVQ,), {"CANDIDATES": tuple(candidates), "PERIOD": 1000, "RATE": rate, "MIN_MINI": 50, "MARGIN": margin})
+        policy, resident, misses = cls(900, Context()), set(), [0, 0]
+        incumbent = VQ(900, Context()) if handover else None
+        for now, key in enumerate(dense.tolist()):
+            if incumbent is not None and now == 8000:
+                tail_first = [[(k, incumbent.state[k] & 15) for k in reversed(queue)] for queue in incumbent.queues]
+                assert set(policy.adopt(Handover(900, now, *tail_first, list(incumbent.ghost), {}, not incumbent.has_evicted))) == resident
+                incumbent = None
+            active, hit = incumbent or policy, key in resident
+            if hit:
+                active.on_hit(key, now)
+            else:
+                misses[now >= 8000] += 1
+                active.on_miss(key, now)
+                while len(resident) >= 900:
+                    resident.remove(active.evict(now))
+                active.insert(key, now)
+                resident.add(key)
+            if incumbent is not None:
+                policy.observe(key, now, hit)
+        assert [int(x) for x in line.split()[:3]] == [*misses, policy.switches], head
+        switched = max(switched, policy.switches)
+    assert switched >= 3
+    trapped = "maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,1,0"  # M demotes into itself: rejected by both
+    (tmp_path / "jobs").write_text(f"100 {split} 0 {trapped}\n")
+    assert subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True).stdout.startswith("error")
+    with pytest.raises(ValueError):
+        design(trapped)(100, Context())
 
 
 def test_s4fifo_defaults_are_s3fifo_and_knobs_act(lab: Lab) -> None:
@@ -241,7 +494,8 @@ def test_scripted_session_end_to_end(lab: Lab, tmp_path: Path) -> None:
         },
         number,
     )
-    assert result.success and len(result.images) == 1 and "prediction check" in result.text
+    assert result.success and len(result.images) == 2 and "prediction check" in result.text  # overview + progress dashboard
+    assert "progress after" in result.text and "best so far:" in result.text
     assert 'kind="current"' in result.images[0]["steer_text"]
     # The lab fixture is shared, so earlier tests already used other ids.
     mine = session.experiment_log[-1]["experiment"]
@@ -393,8 +647,11 @@ def test_training_then_reading_experience(engineer_setup, tmp_path) -> None:
     zoo_dir = tmp_path / "zoo"
     baselines = engineer.evaluate(lab, task, "s3fifo", zoo_dir=zoo_dir, workers=2, tune=False)
 
-    def feedback(identity: str) -> dict:
-        return engineer.evaluate(lab, task, identity, zoo_dir=zoo_dir, baselines=baselines, verified=False)
+    calls = []
+
+    def feedback(identity: str, verified: bool = False) -> dict:
+        calls.append((identity, verified))
+        return engineer.evaluate(lab, task, identity, zoo_dir=zoo_dir, baselines=baselines, verified=verified)
 
     library = Library(tmp_path / "library")
     session = CacheLabSession(lab, visual=False, max_experiments=3, role="engineer", shots=True, library=library, train_feedback=feedback)
@@ -408,12 +665,17 @@ def test_training_then_reading_experience(engineer_setup, tmp_path) -> None:
 
     assert tools["run_experiment"]({"name": "big S", "code": BIGGER_SMALL, "hypothesis": "h", "prediction": {"expected_change_pct": 0.0, "mechanism_signature": "s"}}).success
     identity = session.experiment_log[-1]["experiment"]
-    assert not tools["record_experience"]({"decision": "d", "lesson": "l", "playbook": "p"}).success
+    assert not tools["record_experience"]({"decision": "d", "lesson": "l", "cited": [], "playbook_ops": []}).success
     decision = {"experiment": identity, "mechanism": "bigger S", "evidence": "e", "limitations": "l"}
-    reply = tools["commit_decision"](decision)
+    challenge = tools["commit_decision"](decision)  # a reference beats it on the observed part: asked once to look again
+    assert not challenge.success and "Not final yet" in challenge.text and "does better on the observed part" in challenge.text
+    reply = tools["commit_decision"](decision)  # the same decision on a second try is accepted
     assert reply.success and "Outcome on the remaining requests" in reply.text and not reply.finished
     assert not session.submitted
     assert not tools["commit_decision"](decision).success  # only once
+    # The decision is scored like a test run: verified (memory, tampering).
+    assert calls == [(identity, True)] and session.feedback_report["verified"] and session.feedback_report["valid"]
+    assert "INVALID" not in reply.text
     expected = engineer.evaluate(lab, task, identity, zoo_dir=zoo_dir, tune=False, verified=False)
     assert [row["candidate"] for row in session.feedback_report["rows"]] == pytest.approx([row["candidate"] for row in expected["rows"]])
     from vista.benchmarks.cachelab.run import counterfactuals
@@ -422,31 +684,56 @@ def test_training_then_reading_experience(engineer_setup, tmp_path) -> None:
     assert {"s3fifo", "mq", identity} <= set(labels) and labels["s3fifo"]["mean_relative_vs_s3fifo"] == 0.0
     assert labels[identity]["mean_relative_vs_s3fifo"] == pytest.approx(session.feedback_report["mean_relative_vs_s3fifo"])
     assert labels["mq"]["reference"] and not labels[identity]["reference"] and labels[identity]["source"] == BIGGER_SMALL
-    reply = tools["record_experience"]({"decision": "S3-FIFO with S=25%", "lesson": "a bigger S helps scans", "playbook": "- scans: S=25%"})
+    assert all(record["complete"] for record in labels.values())
+    # Under a host budget: S3-FIFO and the decision first, references only if it lasts.
+    budgeted = counterfactuals(lab, feedback, decision=identity, cost=10, budget=25)
+    assert [record["experiment"] for record in budgeted] == ["s3fifo", identity] and not budgeted[0]["complete"]
+    assert len(counterfactuals(lab, feedback, decision=identity, cost=10, budget=30)) == 3
+    scans = {"op": "add", "scope": "periodic scans in the observed part", "text": "S3-FIFO with S=25%", "cases": ["case-001"]}
+    bad = tools["record_experience"]({"decision": "S3-FIFO with S=25%", "lesson": "l", "cited": ["P009"], "playbook_ops": [scans]})
+    assert not bad.success and "P009" in bad.text and not library.cases()  # nothing recorded
+    bad = tools["record_experience"]({"decision": "S3-FIFO with S=25%", "lesson": "l", "cited": [], "playbook_ops": [{"op": "edit", "id": "P001", "text": "x"}]})
+    assert not bad.success and not library.cases()
+    reply = tools["record_experience"]({"decision": "S3-FIFO with S=25%", "lesson": "a bigger S helps scans", "cited": [], "playbook_ops": [scans]})
     assert reply.finished and session.submitted and session.submission_record["case"] == "case-001"
     (case, code) = library.case("case-001")
     assert code == BIGGER_SMALL and case["signature"]["cache_sizes"] == list(task.capacities)
     assert case["outcome"]["mean_relative_vs_s3fifo"] == pytest.approx(session.feedback_report["mean_relative_vs_s3fifo"])
-    assert library.playbook == "- scans: S=25%"
+    assert case["outcome"]["valid"]
+    assert [item["id"] for item in library.items()] == ["P001"] and library.items()[0]["supports"] == ["case-001"]
+    assert "[P001] when: periodic scans in the observed part" in library.playbook and "S3-FIFO with S=25%" in library.playbook
 
     # A test session reads the library and may deploy S3-FIFO or a reference unchanged.
     reader = CacheLabSession(lab, visual=False, max_experiments=3, role="engineer", shots=True, library=library)
     tools = {binding.spec.name: binding.handler for binding in reader.tools}
     assert "submit_policy" in tools and "commit_decision" not in tools and "record_experience" not in tools
-    assert "- scans: S=25%" in reader.initial and "case-001" in reader.initial
+    assert "[P001]" in reader.initial and "S3-FIFO with S=25%" in reader.initial and "case-001" in reader.initial
     texts = [reader.initial, tools["read_case"]({"case": "case-001"}).text]
     assert "class CachePolicy(S3FIFO)" in texts[-1]
     missing = tools["read_case"]({"case": "case-009"})
     assert not missing.success and "case-001" in missing.text
     for text in [*texts, session.initial, reply.text]:
         assert SECRET not in text and str(lab.root) not in text and "private" not in text
-    assert tools["submit_policy"]({"experiment": "mq", "mechanism": "m", "evidence": "e", "limitations": "l"}).finished
+    # A reference may be deployed unchanged when it fits the memory limit (MQ does not: 3-5x).
+    refused = tools["submit_policy"]({"experiment": "mq", "mechanism": "m", "evidence": "e", "limitations": "l"})
+    assert not refused.finished and "would be scored invalid" in refused.text
+    lru = {"experiment": "lru", "mechanism": "m", "evidence": "e", "limitations": "l"}
+    assert tools["submit_policy"](lru).finished or tools["submit_policy"](lru).finished  # at most one challenge
 
+    # A second session's library: its rule cites its own case-001, which becomes case-002 when merged.
     other = Library(tmp_path / "other")
-    other.add({"signature": case["signature"], "decision": "keep S3-FIFO", "outcome": {}}, "", "- default: keep S3-FIFO")
-    merged = Library(merge([library.root, other.root], tmp_path / "merged"))
-    assert [c["case"] for c in merged.cases()] == ["case-001", "case-002"]
-    assert "- scans: S=25%" in merged.playbook and "- default: keep S3-FIFO" in merged.playbook
+    other.add_case({"signature": case["signature"], "decision": "keep S3-FIFO", "outcome": {}, "cited": []}, "")
+    other.apply_ops([{"op": "add", "scope": "no scans", "text": "keep S3-FIFO", "cases": ["case-001"]}], "case-001")
+    other.apply_ops([{"op": "edit", "id": "P001", "text": "keep S3-FIFO unless scans appear"}], "case-002")
+    old = Library(tmp_path / "old-format")  # a free-text playbook from before itemization
+    old.add({"signature": case["signature"], "decision": "MQ", "outcome": {}}, "", "- deploy MQ on small caches")
+    merged = Library(merge([library.root, other.root, old.root], tmp_path / "merged"))
+    assert [c["case"] for c in merged.cases()] == ["case-001", "case-002", "case-003"]
+    rules = {item["id"]: item for item in merged.items()}
+    assert rules["P001"]["text"] == "S3-FIFO with S=25%" and rules["P001"]["supports"] == ["case-001"]
+    assert rules["P002"]["text"] == "keep S3-FIFO unless scans appear" and rules["P002"]["supports"] == ["case-002"]
+    assert [name for name, _ in merged.proposals()] == ["session-3"] and "deploy MQ" in merged.proposals()[0][1]
+    assert merged.playbook_is_merged() and "[P002]" in merged.playbook and "deploy MQ" in merged.playbook
     assert merged.case("case-002")[0]["origin"] == "session-2, case-001"
 
 
@@ -532,3 +819,778 @@ def test_engineer_experiments_hand_over(engineer_setup) -> None:
     base = lab.experiment(BASELINE).run("target", capacity).outcome
     assert np.array_equal(first.run("target", capacity).outcome[:split], base[:split])
     assert not np.array_equal(second.run("target", capacity).outcome[:split], base[:split])
+
+
+def test_analyst_reviews_training_cases_in_hindsight(engineer_setup, tmp_path) -> None:
+    from vista.benchmarks.cachelab import analyst
+    from vista.benchmarks.cachelab.experience import (
+        Library,
+        absorb,
+        compact_counterfactuals,
+        signature,
+    )
+
+    task, lab = engineer_setup
+    lineage = Library(tmp_path / "lineage-1")
+    case = lineage.add(
+        {"signature": signature(lab), "decision": "S3-FIFO with S=25%", "lesson": "bigger S helps scans", "outcome": {"mean_relative_vs_s3fifo": 0.01}},
+        BIGGER_SMALL,
+        "- scans: S=25%",
+    )
+    lineage.set_origin(case, {"target": task.full.spec.manifest(), "split": task.split, "split_fraction": task.fraction, "capacities": list(task.capacities)})
+    hindsight = {"experiment": "e1", "name": "big S", "reference": False, "source": BIGGER_SMALL, "prefix_relative_vs_s3fifo": -0.01, "mean_relative_vs_s3fifo": 0.02, "suffix": []}
+    lineage.update_case(case, counterfactuals=compact_counterfactuals([hindsight]))
+
+    library = Library(tmp_path / "merged")
+    assert absorb(library, lineage, label="session-1") == ["case-001"]
+    assert library.origins()["case-001"]["split"] == task.split
+    assert [name for name, _ in library.proposals()] == ["session-1"]
+
+    # The analyst replays the whole workload under the case id, with the decision recorded as dec-001.
+    alab = analyst.make_lab(library, tmp_path / "analyst-lab", LocalSandbox(workers=4), workers=4)
+    assert list(alab.dev) == ["case-001"] and alab.handover == task.fraction
+    assert np.array_equal(alab.dev["case-001"].keys(), task.full.keys())
+    assert alab.is_reference("dec-001") and alab.experiment("dec-001").source == BIGGER_SMALL
+    assert alab.experiment("dec-001").ok
+
+    session = CacheLabSession(alab, visual=False, max_experiments=3, role="analyst", library=library)
+    tools = {binding.spec.name: binding.handler for binding in session.tools}
+    assert {"update_knowledge", "read_case", "run_experiment"} <= set(tools)
+    assert not {"submit_policy", "commit_decision", "record_experience"} & set(tools)
+    profile = make_profile(profile="numeric", backend="codex", max_experiments=3, initial=session.initial, role="analyst", experience=True)
+    assert "update_knowledge" in profile.tools
+    texts = [
+        session.initial,
+        tools["read_case"]({"case": "case-001"}).text,
+        tools["experiment_info"]({"experiment": "dec-001"}).text,
+        tools["view_overview"]({"experiment": "dec-001", "compare_to": "s3fifo"}).text,
+    ]
+    assert "case-001" in session.initial and "dec-001" in session.initial and "big S" in texts[1]
+    for text in texts:
+        assert SECRET not in text and str(task.full.path) not in text and "ORIGINS" not in text
+
+    assert not tools["update_knowledge"]({"postmortems": [{"case": "case-009", "text": "x"}], "knowledge": "k", "playbook_ops": []}).success
+    keep = {"op": "add", "scope": "one-hit share below 0.5", "text": "keep S3-FIFO", "cases": ["case-001"]}
+    assert not tools["update_knowledge"]({"postmortems": [], "knowledge": "k", "playbook_ops": [{"op": "retire", "id": "P004", "reason": "r"}]}).success
+    reply = tools["update_knowledge"]({"postmortems": [{"case": "case-001", "text": "S=25% lost after the split"}], "knowledge": "- scans pass", "playbook_ops": [keep]})
+    assert reply.finished and session.submitted
+    assert "[P001] when: one-hit share below 0.5" in library.playbook and library.knowledge == "- scans pass" and not library.proposals()
+    assert "postmortem (analyst-1): S=25% lost after the split" in library.case_text("case-001")
+
+
+def test_view_opt_splits_avoidable_misses(lab: Lab) -> None:
+    from vista.benchmarks.cachelab import analysis
+
+    name, capacity = "dev-2", lab.capacities["dev-2"][0]
+    view = lab.opt_view(BASELINE, name, capacity, None, None, 32)
+    totals = view.data["opt"]
+    run = lab.experiment(BASELINE).run(name, capacity)
+    opt = lab.opt(name, capacity)
+    # OPT never misses more than the policy, and avoidable + unavoidable = all misses.
+    assert totals["opt_misses"] <= totals["misses"]
+    assert totals["avoidable"] == int(((run.outcome != analysis.HIT) & opt["hit"]).sum())
+    assert sum(totals["avoidable_by_queue"].values()) == totals["avoidable"]
+    assert view.png is not None and "Belady boundary" in view.text
+    # The comparison form: what a bigger S fixed and created relative to S3-FIFO.
+    bigger, _ = lab.dev_experiment("big S for opt", BIGGER_SMALL)
+    compared = lab.opt_view(bigger.id, name, capacity, None, None, 32, BASELINE)
+    assert "fixed" in compared.text and compared.png is not None
+
+
+def test_memory_bound_charges_policy_state_not_imports(tmp_path) -> None:
+    spec = traces.TraceSpec("m", "dev", "zipf_scan", {"objects": 5000, "alpha": 0.8, "scan_every": 5000, "scan_length": 1500}, requests=20_000, seed=3)
+    small = Lab(tmp_path / "lab", LocalSandbox(workers=2), dev=[spec], heldout=(), workers=2)
+    same = small.test_policy("from s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    GHOST_RATIO = 0.9\n")
+    # An identical subclass costs what S3-FIFO costs; in a tiny cache a few KB of class overhead show.
+    ratios = list(same.data["memory_ratios"].values())
+    assert 0.9 <= min(ratios) and max(ratios[1:]) <= 1.15 and ratios[0] <= 1.25, same.text
+    stash = small.test_policy("from s3fifo import S3FIFO\nBIG = bytearray(4_000_000)\n\n\nclass CachePolicy(S3FIFO):\n    pass\n")
+    assert stash.data["memory_ratio"] > 2.0 and "over the memory limit" in stash.text, stash.text  # module-level state still counts
+
+
+def test_host_credits_cited_rules_from_hindsight(tmp_path) -> None:
+    from vista.benchmarks.cachelab.experience import Library
+
+    library = Library(tmp_path / "library")
+    library.apply_ops([{"op": "add", "scope": "s", "text": "bigger ghost"}, {"op": "add", "scope": "s", "text": "deploy MQ"}], "seed")
+
+    def case(mean: float, best: float, cited: list[str]) -> str:
+        case_id = library.add_case({"signature": {}, "decision": "d", "outcome": {"mean_relative_vs_s3fifo": mean}, "cited": cited}, "")
+        hindsight = [{"experiment": "e1", "mean_relative_vs_s3fifo": best}, {"experiment": "s3fifo", "mean_relative_vs_s3fifo": 0.0}]
+        library.update_case(case_id, counterfactuals=hindsight)
+        return case_id
+
+    good, bad, regret = case(-0.010, -0.012, ["P001"]), case(+0.004, -0.001, ["P002"]), case(-0.002, -0.030, ["P001"])
+    assert [library.credit(c) for c in (good, bad, regret)] == ["helpful", "harmful", "harmful"]
+    assert library.credit(good) is None  # once per case
+    rules = {item["id"]: item for item in library.items()}
+    assert (rules["P001"]["helpful"], rules["P001"]["harmful"]) == (1, 1) and (rules["P002"]["helpful"], rules["P002"]["harmful"]) == (0, 1)
+    assert "did well 1x, badly 1x" in library.playbook
+
+
+def test_view_handover_splits_decision_and_transition(engineer_setup) -> None:
+    task, lab = engineer_setup
+    view = lab.run_experiment("tiny S big ghost", "from s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    SMALL_RATIO = 0.02\n    GHOST_RATIO = 2.0\n", "h", None)
+    identity = view.data["experiment"]
+    capacity = task.capacities[-1]
+    handover = lab.handover_view(identity, "target", capacity)
+    totals = handover.data["handover"]
+    assert totals["deployed_effect"] == pytest.approx(totals["decision_effect"] + totals["transition_cost"])
+    assert handover.png is not None and "transition" in handover.text and SECRET not in handover.text
+    cold = lab.run_experiment("cold", "from s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    SMALL_RATIO = 0.02\n", "h", None, handover=0)
+    with pytest.raises(LabError):
+        lab.handover_view(cold.data["experiment"], "target", capacity)
+
+
+def test_bucket_mean_stops_at_the_window_end() -> None:
+    from vista.benchmarks.cachelab import analysis
+
+    values = np.zeros(100)
+    values[60:] = 1.0  # all after the window
+    assert analysis.bucket_mean(values, analysis.edges(0, 50, 5)).tolist() == [0.0] * 5
+
+
+def test_view_knobs_sweeps_one_knob_at_a_time(engineer_setup) -> None:
+    from vista.benchmarks.cachelab import analysis
+    from vista.benchmarks.cachelab.search import policy_source
+
+    task, lab = engineer_setup
+    capacity = task.capacities[1]
+    view = lab.knobs_view("target", capacity)
+    knobs = view.data["knobs"]
+    assert set(knobs) == {"SMALL_RATIO", "GHOST_RATIO", "MOVE_THRESHOLD", "MAX_FREQ"}
+    for data in knobs.values():
+        # The default is a candidate, so the best static value never loses, and the per-window best never loses to it.
+        assert data["switching_change"] <= data["static_change"] + 1e-12 <= 1e-12
+    assert view.png is not None and "best per window" in view.text and SECRET not in view.text
+    # A variant's misses after the handover match simulating it directly.
+    from vista.benchmarks.cachelab.engine import handover_index
+
+    trace = lab.trace("target")
+    first = handover_index(trace.requests, lab.handover)
+    assert first > 0
+    run = lab.store.simulate(policy_source({"SMALL_RATIO": 0.02}), [(trace, capacity)], handover=lab.handover)[("target", capacity)]
+    base = lab.experiment(BASELINE).run("target", capacity)
+    direct = ((run.outcome[first:] != analysis.HIT).sum() - (base.outcome[first:] != analysis.HIT).sum()) / (base.outcome[first:] != analysis.HIT).sum()
+    swept = [line for line in view.text.splitlines() if line.strip().startswith("0.02:")][0]
+    assert f"overall {direct * 100:+.2f}%" in swept
+    # Cached: a second call simulates nothing new and agrees.
+    assert lab.knobs_view("target", capacity).text == view.text
+    assert lab.knobs_view("target", capacity, buckets=8, visual=False).png is None
+
+
+def test_repeats_are_named(engineer_setup) -> None:
+    from vista.benchmarks.cachelab.lab import program_key
+
+    task, lab = engineer_setup
+    code = 'from s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    """Smaller S."""\n\n    SMALL_RATIO = 0.03\n'
+    same = "# the same idea, reformatted\nfrom s3fifo import S3FIFO\nclass CachePolicy(S3FIFO):\n    SMALL_RATIO = 0.03  # smaller\n"
+    assert program_key(code) == program_key(same) != program_key(code.replace("0.03", "0.04"))
+    first = lab.run_experiment("small S", code, "h", None)
+    assert lab.test_policy(same).data["same_program"] == [first.data["experiment"]]
+    again = lab.run_experiment("small S again", same, "h", None)
+    assert again.data["same_as"] == first.data["experiment"] and "repeat:" in again.text and "same program" in again.text
+    # A change that never alters a decision behaves exactly like S3-FIFO.
+    inert = lab.run_experiment("inert", "from s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    UNUSED = 7\n", "h", None)
+    assert inert.data["same_as"] == "s3fifo" and "did not alter any decision" in inert.text
+    fresh = lab.run_experiment("bigger ghost", "from s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    GHOST_RATIO = 2.0\n", "h", None)
+    assert fresh.data["same_as"] is None and "repeat:" not in fresh.text
+
+
+def test_provider_errors_resume_the_same_conversation(tmp_path) -> None:
+    """A gateway 5xx ends Claude Code's turn; the harness pauses and resumes that
+    conversation (keeping its context) before falling back to a fresh session."""
+    from vista.backends.claude import lifecycle
+    from vista.backends.claude.runner import ClaudeResult
+
+    def result(segment: int, session: str, *, status: int | None, code: int) -> ClaudeResult:
+        path = tmp_path / f"s{segment}"
+        return ClaudeResult(segment, code, code, "", session, (), path, path, path, path, path, path, None, api_error_status=status)
+
+    class Controller:
+        terminal = False
+        step_index = 0
+        compact_checkpoint_marker = None
+        retry_boundary_pending = False
+
+        def begin_runtime_recovery(self):
+            return "recovery"
+
+    class Runner:
+        def __init__(self, failures: int) -> None:
+            self.calls, self.failures, self.controller = [], failures, Controller()
+
+        def run_task(self, prompt):
+            self.calls.append("start")
+            return result(0, "s1", status=502, code=1)
+
+        def resume_nonterminal_task(self, session_id, prompt):
+            self.calls.append(("resume", session_id))
+            if len(self.calls) - 1 <= self.failures:  # the first `failures` resumes fail too
+                return result(len(self.calls), session_id, status=502, code=1)
+            self.controller.terminal = True
+            return result(len(self.calls), session_id, status=None, code=0)
+
+        def run_fresh_runtime_recovery(self, recovery):
+            self.calls.append("fresh")
+            self.controller.terminal = True
+            return result(len(self.calls), "s2", status=None, code=0)
+
+    sleeps: list[float] = []
+    runner = Runner(failures=2)
+    lifecycle.run_task_with_native_context(runner=runner, controller=runner.controller, prompt="go", results=[], sleep=sleeps.append)
+    assert runner.calls == ["start", ("resume", "s1"), ("resume", "s1"), ("resume", "s1")] and len(sleeps) == 3
+    # Resuming keeps failing: after the per-step allowance, a fresh session takes over.
+    runner = Runner(failures=99)
+    lifecycle.run_task_with_native_context(runner=runner, controller=runner.controller, prompt="go", results=[], sleep=sleeps.append)
+    assert runner.calls.count(("resume", "s1")) == lifecycle.MAX_PROVIDER_5XX_RESUMES_PER_STEP and runner.calls[-1] == "fresh"
+
+
+def test_policy_check_blocks_reaching_the_simulator() -> None:
+    from vista.benchmarks.cachelab.policy_check import check_policy
+
+    head = "import random\nimport typing\nfrom s3fifo import S3FIFO\n\n\nclass CachePolicy(S3FIFO):\n    def on_request(self, key):\n"
+    escapes = [
+        "        frame = getattr(getattr(random, '_os').sys, '_getframe')(1)\n",  # the audit's route to the trace
+        "        name = '_' + 'os'\n        getattr(random, name)\n",
+        "        typing.sys.modules['builtins']\n",
+        "        frame = self.f_back\n",
+    ]
+    for escape in escapes:
+        assert check_policy(head + escape), escape
+    assert check_policy(head + "        return getattr(self, '_' + '_class__')\n")  # computed names stay out
+    # Ordinary dynamic access to the policy's own state stays allowed (S3-FIFO's export does it).
+    assert not check_policy(head + "        return getattr(self, 'SMALL_RATIO', 0.1)\n")
+    assert not check_policy(head + "        return {name: getattr(self, name) for name in ('SMALL_RATIO', 'MAX_FREQ')}\n")
+
+
+def test_invalid_decisions_are_named_in_training_feedback() -> None:
+    from vista.benchmarks.cachelab.experience import outcome_summary, validity_text
+
+    assert validity_text({"valid": True}) == ""
+    report = {
+        "valid": False,
+        "rows": [],
+        "failures": [],
+        "memory_violations": [{"capacity": 41, "ratio": 2.31}],
+        "fast_verified_mismatches": [{"capacity": 410}],
+    }
+    text = validity_text(report)
+    assert text.startswith("INVALID") and "41 (2.31x)" in text and "C=410" in text and "S3-FIFO unchanged (0%)" in text
+    assert outcome_summary(report)["valid"] is False
+
+
+def test_full_length_suites_pick_whole_traces_in_a_length_range(tmp_path) -> None:
+    from vista.benchmarks.cachelab.traces import (
+        ORACLE_GENERAL,
+        count_requests,
+        sample_real_suite,
+    )
+
+    def write(path: Path, n: int) -> None:
+        records = np.zeros(n, dtype=ORACLE_GENERAL)
+        records["obj_id"] = np.arange(n) % 97
+        data = records.tobytes()
+        if path.suffix == ".zst":
+            zstandard = pytest.importorskip("zstandard")
+            data = zstandard.ZstdCompressor().compress(data)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    lengths = {"a.oracleGeneral": 50, "b.oracleGeneral": 400, "c.oracleGeneral.zst": 700, "d.oracleGeneral.zst": 5000}
+    for name, n in lengths.items():
+        write(tmp_path / "ds" / name, n)
+    assert count_requests(tmp_path / "ds" / "c.oracleGeneral.zst") == 700
+    assert count_requests(tmp_path / "ds" / "d.oracleGeneral.zst", stop_after=1000) > 1000  # stops early, still over
+
+    specs = sample_real_suite(tmp_path, split="heldout", datasets=["ds"], per_dataset=5, requests=10, seed=1, full_length=(100, 1000), name_prefix="hl")
+    assert sorted((spec.params["file"], spec.requests) for spec in specs) == [("b.oracleGeneral", 400), ("c.oracleGeneral.zst", 700)]
+    assert [spec.name for spec in specs] == ["hl-ds-1", "hl-ds-2"]
+    excluded = sample_real_suite(
+        tmp_path, split="heldout", datasets=["ds"], per_dataset=5, requests=10, seed=1, full_length=(100, 1000), exclude={specs[0].source}
+    )
+    assert [spec.source for spec in excluded] == [specs[1].source]
+    # Without full_length, the old behaviour: a fixed prefix of any file.
+    prefixes = sample_real_suite(tmp_path, split="heldout", datasets=["ds"], per_dataset=2, requests=10, seed=1)
+    assert len(prefixes) == 2 and {spec.requests for spec in prefixes} == {10}
+
+
+def test_docker_batches_mount_files_alone_and_scale_memory(tmp_path, monkeypatch) -> None:
+    import subprocess
+
+    from vista.benchmarks.cachelab import engine
+
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "target.json").write_text('{"source": "/data/secret-name.zst"}')
+    trace = private / "target.bin"
+    with trace.open("wb") as stream:
+        stream.truncate(50_000_000 * engine.KEY_BYTES)  # sparse: a 50M-request trace
+    small = tmp_path / "traces" / "dev.bin"
+    small.parent.mkdir()
+    small.write_bytes(b"\0" * 8 * 1000)
+    policy = tmp_path / "policies" / "p" / "policy.py"
+    policy.parent.mkdir(parents=True)
+    policy.write_text("x = 1\n")
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"results": [{"ok": True, "out": "/out/0"}, {"ok": True, "out": "/out/1"}]}), stderr="")
+
+    monkeypatch.setattr(engine.subprocess, "run", fake_run)
+    sandbox = engine.DockerSandbox(workers=4, memory_gb=6)
+    jobs = [{"trace": str(trace), "capacity": c, "out": str(tmp_path / f"out{c}"), "policy": str(policy)} for c in (10, 20)]
+    sandbox.run(jobs, work=tmp_path / "work", timeout=60)
+    command = seen["command"]
+    volumes = [command[i + 1] for i, part in enumerate(command) if part == "-v"]
+    mounted = {volume.split(":")[0]: volume.split(":")[1] for volume in volumes}
+    assert mounted[str(trace.resolve())].endswith("/target.bin") and mounted[str(policy.resolve())].endswith("/policy.py")
+    assert not any(volume.startswith(f"{private.resolve()}:") for volume in volumes)  # never the directory with the manifest
+    # Two 50M-request cells at once need more than the 6 GB default; a small batch keeps it.
+    memory = int(command[command.index("--memory") + 1].removesuffix("g"))
+    assert memory == -(-2 * (engine.CELL_BASE_BYTES + 50_000_000 * engine.CELL_BYTES_PER_REQUEST) // (1 << 30)) > 6
+    assert sandbox.memory_for([{"trace": str(small)}]) == 6
+
+
+def test_redaction_hides_resolved_lab_paths_and_the_simulator_install(engineer_setup, tmp_path) -> None:
+    from vista.benchmarks.cachelab import engineer
+
+    _, lab = engineer_setup
+    traceback = f'File "{SANDBOX_DIR.resolve()}/simulate.py", line 9; {lab.root.resolve()}/runs/abc; {SECRET}'
+    text = lab.redact(traceback)
+    assert str(SANDBOX_DIR.resolve()) not in text and str(lab.root.resolve()) not in text and SECRET not in text
+    # A lab reached through a symlink (runs/ on another disk) hides the real path too.
+    link = tmp_path / "runs-link"
+    link.symlink_to(lab.root.parent, target_is_directory=True)
+    task = engineer.prepare(traces.TraceSpec("w", "heldout", "zipf_scan", {"objects": 3000, "alpha": 0.6, "scan_every": 2000, "scan_length": 500}, requests=10_000, seed=1), link / lab.root.name / "via-link")
+    linked = engineer.make_lab(task, link / lab.root.name / "via-link", LocalSandbox(workers=1))
+    assert str(linked.root.resolve()) not in linked.redact(f"{linked.root.resolve()}/runs/x")
+
+
+def test_claude_tool_calls_may_stay_silent_for_hours(monkeypatch, tmp_path) -> None:
+    import argparse
+    import types
+
+    import vista.backends.claude as claude
+    from vista.backends.claude.runner import ClaudeCodeRunner
+    from vista.backends.launch import add_backend_arguments, prepare_backend
+
+    parser = argparse.ArgumentParser()
+    add_backend_arguments(parser)
+    args = parser.parse_args(["--backend", "claude", "--claude-base-url", "https://gateway.example", "--claude-tool-idle-timeout", "10800"])
+    args.task_timeout = 60
+    monkeypatch.setenv(args.claude_token_env, "token")
+    seen = {}
+    monkeypatch.setattr(claude, "create_backend", lambda runtime, **kwargs: seen.update(kwargs))
+    factory, _ = prepare_backend(args, parser.error, check=lambda transport, binary: (tmp_path / "claude", {"container_image_id": "image"}))
+    factory(None, tmp_path)
+    provider = seen["provider"]
+    assert provider.mcp_tool_idle_timeout_ms == 10_800_000 and provider.max_retries == 15
+    fake = types.SimpleNamespace(
+        provider_environment=(), max_output_tokens=None, mcp_tool_timeout_ms=None, max_retries=provider.max_retries,
+        mcp_tool_idle_timeout_ms=provider.mcp_tool_idle_timeout_ms, _container_name=lambda session: None,
+    )
+    arguments = ClaudeCodeRunner._provider_arguments(fake, "s")
+    assert "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=10800000" in arguments and "CLAUDE_CODE_MAX_RETRIES=15" in arguments
+
+
+def test_belady_boundary_is_infinite_when_opt_only_evicts_dead_objects() -> None:
+    import warnings
+
+    from vista.benchmarks.cachelab.analysis import NEVER, belady_boundary
+
+    gaps = np.array([NEVER] * 99 + [5], dtype=np.int64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert belady_boundary({"evict_gap": gaps}) == float("inf")
+    assert belady_boundary({"evict_gap": np.array([10, 20, 30, NEVER], dtype=np.int64)}) == pytest.approx(11.5)
+
+
+def test_a_decision_over_the_memory_limit_is_refused(engineer_setup) -> None:
+    _, lab = engineer_setup
+    session = CacheLabSession(lab, visual=False, max_experiments=3, role="engineer", shots=True)
+    tools = {binding.spec.name: binding.handler for binding in session.tools}
+    stash = "from s3fifo import S3FIFO\nBIG = bytearray(4_000_000)\n\n\nclass CachePolicy(S3FIFO):\n    pass\n"
+    assert tools["run_experiment"]({"name": "stash", "code": stash, "hypothesis": "h", "prediction": {"expected_change_pct": 0.0, "mechanism_signature": "s"}}).success
+    identity = session.experiment_log[-1]["experiment"]
+    decision = {"experiment": identity, "mechanism": "m", "evidence": "e", "limitations": "l"}
+    refused = tools["submit_policy"](decision)
+    assert not refused.success and not refused.finished and "would be scored invalid" in refused.text and not session.submitted
+    # S3-FIFO itself is always within the limit.
+    assert tools["submit_policy"]({**decision, "experiment": "s3fifo"}).finished
+
+
+def test_run_experiment_tunes_constants_for_one_experiment(engineer_setup) -> None:
+    from vista.benchmarks.cachelab.lab import tuned_variants
+
+    _, lab = engineer_setup
+    session = CacheLabSession(lab, visual=False, max_experiments=3, role="engineer", shots=True)
+    tools = {binding.spec.name: binding.handler for binding in session.tools}
+    request = {"name": "tuned S", "code": BIGGER_SMALL, "hypothesis": "h", "prediction": {"expected_change_pct": 0.0, "mechanism_signature": "s"}}
+    reply = tools["run_experiment"]({**request, "tune": {"SMALL_RATIO": [0.05, 0.1, 0.25, 0.4]}})
+    assert reply.success and "tuned 4 combinations of SMALL_RATIO" in reply.text and reply.text.count("*") >= 1, reply.text
+    experiment = lab.experiment(session.experiment_log[-1]["experiment"])
+    assert "class TunedCachePolicy(CachePolicy):" in experiment.source and session.tool_counts["run_experiment"] == 1
+    chosen = reply.text.split("*SMALL_RATIO=")[1].split(" ")[0]
+    assert f"SMALL_RATIO = {chosen}" in experiment.source
+    # Only the recorded variant keeps its per-request logs.
+    others = [source for assignment, source in tuned_variants(BIGGER_SMALL, {"SMALL_RATIO": [0.05, 0.1, 0.25, 0.4]}) if repr(assignment["SMALL_RATIO"]) != chosen]
+    kept = lab.store.simulate_many([(others[0], trace, capacity) for trace, capacity in lab.cells[:1]], handover=lab.handover)[0]
+    assert kept.summary["requests"] > 0
+    for bad, message in (
+        ({"NOT_A_KNOB": [1, 2]}, "change nothing"),
+        ({"SMALL_RATIO": [0.1]}, "2 to 8"),
+        ({"SMALL_RATIO": ["big", "small"]}, "numbers"),
+        ({"SMALL_RATIO": [0.1, 0.2, 0.3, 0.4], "GHOST_RATIO": [0.5, 0.9, 1.0, 1.5]}, "at most 12"),
+        ({"small_ratio": [0.1, 0.2]}, "UPPER_CASE"),
+    ):
+        refused = tools["run_experiment"]({**request, "tune": bad})
+        assert not refused.success and message in refused.text, refused.text
+    assert len(session.experiment_log) == 1  # refused requests cost nothing
+
+
+def test_tune_schema_rejects_malformed_grids_before_charging() -> None:
+    import jsonschema
+
+    from vista.benchmarks.cachelab.profiles import TUNE
+
+    validator = jsonschema.Draft202012Validator(TUNE)
+    assert validator.is_valid({"SMALL_RATIO": [0.05, 0.1], "USE_GHOST": [True, False]})
+    for bad in ({}, {"small_ratio": [0.1, 0.2]}, {"SMALL_RATIO": [0.1]}, {"SMALL_RATIO": [0.1, 0.1]}, {"SMALL_RATIO": ["a", "b"]}, {f"K{i}": [1, 2] for i in range(4)}):
+        assert not validator.is_valid(bad), bad
+
+
+def test_prefix_tuning_descends_one_knob_at_a_time(engineer_setup) -> None:
+    import itertools
+
+    from vista.benchmarks.cachelab import engineer
+    from vista.benchmarks.cachelab.search import DEFAULT, policy_source
+
+    task, lab = engineer_setup
+    grid = {"SMALL_RATIO": (0.05, 0.1, 0.25), "MOVE_THRESHOLD": (1, 2, 3)}
+    calls = []
+    original = lab.store.simulate_many
+
+    def counting(entries, **kwargs):
+        calls.append(len(entries))
+        return original(entries, **kwargs)
+
+    lab.store.simulate_many = counting
+    try:
+        tuned = engineer.prefix_tuned(lab, task, grid=grid)
+    finally:
+        lab.store.simulate_many = original
+    base = lab.experiment("s3fifo")
+    for capacity in task.capacities:
+        theirs = base.run(engineer.NAME, capacity).summary["miss_ratio"]
+        brute = min(
+            (lab.store.simulate(policy_source({**DEFAULT, **dict(zip(grid, values, strict=True))}), [(task.prefix, capacity)], handover=lab.handover)[(engineer.NAME, capacity)].summary["miss_ratio"] - theirs) / theirs
+            for values in itertools.product(*grid.values())
+        )
+        row = tuned[capacity]
+        assert brute - 1e-12 <= row["prefix_relative_change"] <= 0.0 and row["suffix_miss_ratio"] is not None
+        assert all(value == DEFAULT[knob] or value in grid.get(knob, ()) for knob, value in row["config"].items())
+    # Prefix runs: fewer than the full grid at every size; the last call is the full-trace run of each size.
+    assert sum(calls[:-1]) < len(task.capacities) * 9 and calls[-1] == len(task.capacities)
+
+
+def test_a_provider_serving_another_model_fails_the_preflight(tmp_path, monkeypatch):
+    # FreeInference answered kimi-k3 requests with qwen3.6-35b while kimi-k3 was
+    # overloaded; Claude Code still reports the model it asked for.
+    from types import SimpleNamespace
+
+    from vista.backends.claude import preflight
+    from vista.backends.claude.runner import ServedModelMismatch, foreign_models
+    from vista.core.player import ToolInterface
+
+    assert foreign_models(["kimi-k3", "<synthetic>"], "kimi-k3") == []
+    assert foreign_models(["kimi-k3", "qwen3.6-35b", "qwen3.6-35b"], "kimi-k3") == ["qwen3.6-35b"]
+
+    served = {"models": ("kimi-k3",)}
+
+    class FakeRunner:
+        display_size = (1024, 1024)
+
+        def __init__(self, **kwargs):
+            pass
+
+        def run_task(self, prompt):
+            return SimpleNamespace(
+                returncode=0, init_envelope={"model": "kimi-k3"}, resolved_models=served["models"],
+                final_message="READY", stdout_path=tmp_path / "stdout.jsonl", stderr_path=tmp_path / "stderr.txt",
+            )  # fmt: skip
+
+    monkeypatch.setattr(preflight, "ClaudeCodeRunner", FakeRunner)
+    monkeypatch.setattr(preflight, "validate_instruction_envelope", lambda *args, **kwargs: None)
+    tools = ToolInterface(definitions=[], executor=None, action_tools=frozenset(), visual_readers=frozenset(),
+                          predict_images=lambda name, arguments: 0, acknowledge=lambda call_id: None)  # fmt: skip
+
+    def run():
+        return preflight.run_runtime_preflight(
+            visible_dir=tmp_path, config_dir=tmp_path, io_dir=tmp_path, claude_bin=tmp_path / "claude",
+            model="kimi-k3", effort="high", timeout=60, tool_interface=tools,
+        )  # fmt: skip
+
+    assert run()[1] == "kimi-k3"
+    served["models"] = ("kimi-k3", "qwen3.6-35b")
+    with pytest.raises(ServedModelMismatch, match="qwen3.6-35b"):
+        run()
+
+
+def test_cases_are_listed_most_similar_workload_first(tmp_path):
+    from vista.benchmarks.cachelab.experience import Library, signature_distance
+
+    def sig(once, quick, mr):
+        return {"requests": 10, "distinct_objects": 5, "objects_requested_once": once, "requests_to_objects_with_9plus": 0.5,
+                "per_size": [{"s3fifo_miss_ratio": mr, "s_hits_quick": quick, "lru_vs_s3fifo": 0.05, "one_hit_share_C_window": None}]}  # fmt: skip
+
+    here = sig(0.4, 0.2, 0.3)
+    assert signature_distance(here, here) == 0.0
+    # Length is not compared, only shape; features missing on either side are skipped.
+    assert signature_distance(here, {**sig(0.4, 0.2, 0.3), "requests": 10**8}) == 0.0
+    assert signature_distance(here, sig(0.5, 0.2, 0.3)) == pytest.approx(0.1 / 5)
+    assert signature_distance({}, here) is None
+
+    library = Library(tmp_path / "lib")
+    for decision, signature in (("far", sig(0.9, 0.9, 0.9)), ("near", sig(0.41, 0.2, 0.3)), ("unsigned", None)):
+        library.add_case({"decision": decision, "signature": signature, "outcome": {"mean_relative_vs_s3fifo": -0.01}}, "code")
+    rows = library.table(here).splitlines()[1:]
+    assert [row.split()[0] for row in rows] == ["case-002", "case-001", "case-003"] and "n/a" in rows[-1]
+    assert [row.split()[0] for row in library.table().splitlines()[1:]] == ["case-001", "case-002", "case-003"]
+    assert "Most similar workload first" in library.prompt_section(here) and "Most similar" not in library.prompt_section()
+
+
+def test_the_reinsertion_oracle_scans_a_bounded_part_of_m():
+    """With a long horizon nearly every key in M is requested again soon; an unbounded
+    scan then costs O(C) per eviction (a view on a large cache once ran for hours)."""
+    from vista.benchmarks.cachelab import headroom
+
+    capacity, loop = 400, 520
+    keys = np.tile(np.arange(loop, dtype=np.int64), 60)
+    following = np.empty_like(keys)
+    following[:-loop] = np.arange(loop, len(keys))
+    following[-loop:] = analysis_never()
+    pops = 0
+    original = headroom._Timed.pop
+
+    def counted(self):
+        nonlocal pops
+        pops += 1
+        return original(self)
+
+    headroom._Timed.pop = counted
+    try:
+        result = headroom.replay(keys, following, capacity, 0, {"reinsertion": 10 * len(keys)})
+    finally:
+        headroom._Timed.pop = original
+    assert pops <= (headroom.SCAN + 2) * int(result["miss"].sum())
+
+
+def analysis_never():
+    from vista.benchmarks.cachelab.analysis import NEVER
+
+    return NEVER
+
+
+def test_headroom_replays_s3fifo_exactly_and_prices_each_decision(lab):
+    from vista.benchmarks.cachelab import analysis, headroom
+    from vista.benchmarks.cachelab.engine import HIT
+
+    name = "dev-2"
+    capacity = lab.capacities[name][-1]
+    index = lab.index(name)
+    following = analysis.next_requests(index)
+    # Without an oracle the host replay is the sandbox's S3-FIFO, miss for miss.
+    base = headroom.replay(index.dense, following, capacity, 0)
+    assert (base["miss"] == (lab.experiment(BASELINE).run(name, capacity).outcome != HIT)).all()
+    # The oracle takes over at the switch: nothing changes before it.
+    switch = 10_000
+    oracle = headroom.replay(index.dense, following, capacity, switch, {decision: base["m_crossing"] for decision in headroom.DECISIONS})
+    assert (oracle["miss"][:switch] == base["miss"][:switch]).all() and oracle["miss"][switch:].sum() < base["miss"][switch:].sum()
+
+    view = lab.headroom_view(name, capacity)
+    changes = view.data["headroom"]
+    assert all(changes[decision] < 0 for decision in (*headroom.DECISIONS, headroom.ALL)), changes
+    assert changes["OPT"] <= changes[headroom.ALL] and view.png
+    assert "by multiple: 0.25x" in view.text and set(view.data["factors"].values()) <= set(headroom.FACTORS)
+    # Real policies for scale, from the observed trace only; they need a window that runs to the end.
+    assert "3L-Cache" in changes and any(name.startswith("best other (") for name in changes)
+    assert "3L-Cache" not in lab.headroom_view(name, capacity, 0, 20_000, visual=False).data["headroom"]
+    cached = sorted(path.name for path in (lab.root / "headroom").iterdir())
+    assert lab.headroom_view(name, capacity, visual=False).data == view.data
+    assert sorted(path.name for path in (lab.root / "headroom").iterdir()) == cached
+
+
+def test_the_prefix_tuned_knobs_are_offered_as_a_reference(lab):
+    from vista.benchmarks.cachelab import engineer
+    from vista.benchmarks.cachelab.lab import MEMORY_LIMIT_RATIO, TUNED_REFERENCE
+    from vista.benchmarks.cachelab.profiles import initial_prompt
+    from vista.benchmarks.cachelab.search import DEFAULT, policy_source
+
+    caps = lab.capacities["dev-1"]
+    widest = {"SMALL_RATIO": 0.3, "GHOST_RATIO": 2.0, "MOVE_THRESHOLD": 1, "MAX_FREQ": 5}  # the grid's largest ghost
+    configs = {capacity: dict(widest) if i % 2 else dict(DEFAULT) for i, capacity in enumerate(caps)}
+    report = {"rows": [{"capacity": c, "prefix_tuned_config": configs[c], "prefix_tuned_s3fifo": 0.5} for c in caps]}
+    assert engineer.tuned_configs(report, caps) == configs
+    assert engineer.tuned_configs({"rows": report["rows"][:-1]}, caps) is None and engineer.tuned_configs(None, caps) is None
+
+    source = engineer.tuned_reference_source(configs)
+    assert not check_policy(source)
+    # Each size behaves exactly like its own configuration run alone.
+    tuned = lab.store.simulate(source, [(lab.dev["dev-1"], c) for c in caps])
+    for c in caps:
+        alone = lab.store.simulate(policy_source(configs[c]), [(lab.dev["dev-1"], c)])
+        assert tuned[("dev-1", c)].summary["misses"] == alone[("dev-1", c)].summary["misses"], c
+    # Within the memory limit on these small synthetic traces. Not on real ones: there GHOST_RATIO 1.5-2.0
+    # measured 2.3-3x S3-FIFO's memory (tl-cf-4), which is why the CLI offers this reference only on request.
+    check = lab.test_policy(source)
+    assert check.data["ok"] and max(check.data["memory_ratios"].values()) <= MEMORY_LIMIT_RATIO, check.text
+
+    text = initial_prompt([], "", role="engineer", references=("lru", TUNED_REFERENCE))
+    assert f"`{TUNED_REFERENCE}` is S3-FIFO with its four knobs chosen separately" in text
+    assert TUNED_REFERENCE not in initial_prompt([], "", role="engineer", references=("lru",))
+
+
+@pytest.fixture(scope="module")
+def vq_board(tmp_path_factory):
+    import shutil
+    import subprocess
+
+    from vista.benchmarks.cachelab.architect import Board
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    root = tmp_path_factory.mktemp("vq")
+    binary = root / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    suite = root / "suite"
+    for seed in (1, 2):
+        rng = np.random.default_rng(seed)
+        keys = (rng.zipf(1.1 + 0.1 * seed, size=30_000) % 6_000).astype(np.int64)
+        keys[rng.choice(keys.size, keys.size // 5, replace=False)] = np.arange(10**6, 10**6 + keys.size // 5)
+        _, dense = np.unique(keys, return_inverse=True)
+        (suite / f"t{seed}").mkdir(parents=True)
+        (suite / f"t{seed}" / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+        meta = {"requests": keys.size, "split": keys.size // 5, "capacities": [60, 400]}
+        meta["s3fifo"], meta["3L"], meta["best"] = {}, {}, {}
+        for capacity in meta["capacities"]:
+            jobs = root / "jobs"
+            jobs.write_text(f"{capacity} {meta['split']} 0 maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0 handover=1\n")
+            after = int(subprocess.run([str(binary), str(suite / f"t{seed}" / "ids.u32"), str(jobs)], capture_output=True, text=True, check=True).stdout.split()[1])
+            ratio = after / (keys.size - meta["split"])
+            meta["s3fifo"][str(capacity)], meta["3L"][str(capacity)], meta["best"][str(capacity)] = ratio, ratio * 0.98, ["lru", ratio * 0.97]
+        (suite / f"t{seed}" / "meta.json").write_text(json.dumps(meta))
+    return Board(root / "board", suite, binary, slots=2)
+
+
+def test_vq_families_expand_and_reject() -> None:
+    from vista.benchmarks.cachelab.architect import S3_CONFIG, FamilyError, expand
+
+    s3 = {"name": "s3", "stages": [{"name": "S", "size": 0.1, "promote": 2, "up": "M", "ghost": True}, {"name": "M", "promote": 1, "up": "M", "onup": "dec"}]}
+    [(label, config)] = expand(s3)
+    assert label == "(single design)" and config.split()[-2:] == ["st=0.1,1,2,1,0,-1,1,0.0,0.0", "st=0,1,1,1,2,-1,0,0.0,0.0"]
+    assert set(S3_CONFIG.split()[:6]) <= set(config.split())
+    grid = {**s3, "ghost_ratio": [0.5, 0.9], "stages": [{**s3["stages"][0], "size": [0.05, 0.1, 0.2]}, s3["stages"][1]]}
+    assert len(expand(grid)) == 6
+    for bad in (
+        {**s3, "stages": [{"name": "S", "size": 0.1, "up": "X"}, s3["stages"][1]]},  # unknown stage
+        {**s3, "stages": [s3["stages"][0], {"name": "M", "promote": 1, "up": "M", "onup": "keep"}]},  # reinsertion keeps
+        {**s3, "ghost_ratio": 2.5},  # over the memory estimate
+        {**s3, "max_freq": [1, 2, 3, 4, 5, 6, 7], "ghost_ratio": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]},  # too many designs
+        {**s3, "colour": "red"},
+        {**s3, "stages": [s3["stages"][0], {"name": "M", "promote": 1, "up": "M", "onup": "dec", "down": "M"}]},  # demotes into itself
+        {  # H and M demote into each other: nothing leaves either
+            **s3,
+            "stages": [s3["stages"][0], {"name": "H", "size": 0.5, "promote": 1, "up": "M", "down": "M"}, {"name": "M", "promote": 1, "up": "M", "onup": "dec", "down": "H"}],
+        },
+        {**s3, "stages": [{"name": "K", "size": 0.05, "counts": False, "promote": 0, "up": "S"}, {"name": "S", "size": 0.1, "promote": 0, "up": "K"}, s3["stages"][1]]},
+    ):
+        with pytest.raises(FamilyError):
+            expand(bad)
+
+
+def test_vq_architect_session_evaluates_on_the_shared_board(vq_board) -> None:
+    from vista.benchmarks.cachelab.architect import (
+        S3_CONFIG,
+        ArchitectSession,
+        system_prompt,
+    )
+
+    board = vq_board
+    assert len(board.cells) == 4 and all(cell.id.startswith("c") for cell in board.cells)
+    assert board.score({cell.id: S3_CONFIG for cell in board.cells}) == {cell.id: 0.0 for cell in board.cells}
+    session = ArchitectSession(board, author="a1", max_evaluations=3, direction="two-level main")
+    tools = {binding.spec.name: binding for binding in session.tools}
+    assert "t1" not in session.initial and "two-level main" in session.initial and "Principles" in system_prompt(3)
+    family = {
+        "name": "hot-main",
+        "stages": [
+            {"name": "S", "size": [0.05, 0.1], "promote": 2, "up": "M", "ghost": True},
+            {"name": "H", "size": 0.3, "promote": 1, "up": "H", "onup": "half", "down": "M"},
+            {"name": "M", "promote": 1, "up": "H", "onup": "dec"},
+        ],
+    }
+    reply = tools["evaluate_family"].handler({"family": family, "hypothesis": "hot objects stay in H"})
+    assert reply.success and "Family F1" in reply.text and "beats 3L-Cache" in reply.text, reply.text
+    stats = board.families()[0]["stats"]
+    assert stats["designs"] == 2 and sum(d["picked"] for d in stats["per_design"]) == 4
+    assert stats["pool_after"]["mean"] <= stats["pool_before"]["mean"] + 1e-12 or stats["pool_picks"] > 0
+    bad = tools["evaluate_family"].handler({"family": {"name": "x", "stages": [{"name": "S", "up": "Q"}]}, "hypothesis": "h"})
+    assert not bad.success and "Invalid family" in bad.text
+    vqsim, board.vqsim = board.vqsim, Path("/bin/false")  # a failed simulation is a failed tool call, not a crash
+    failed = tools["evaluate_family"].handler({"family": {**family, "max_freq": 2}, "hypothesis": "h"})
+    board.vqsim = vqsim
+    assert not failed.success and "evaluation failed" in failed.text
+    other = ArchitectSession(board, author="a2", max_evaluations=3)
+    assert "F1 hot-main (a1" in other.initial  # the board is shared
+    assert tools["record_finding"].handler({"text": "H helps at large caches", "families": [1]}).success
+    assert "H helps" in tools["view_board"].handler({}).text
+    assert "d02" in tools["view_family"].handler({"family": 1}).text
+    assert "c004" in tools["view_cells"].handler({"family": 1}).text
+    assert not tools["submit_families"].handler({"families": [9], "summary": "s"}).success
+    session.used = session.max_evaluations  # out of evaluations: refused, but the session can still submit
+    refused = tools["evaluate_family"].handler({"family": family, "hypothesis": "h"})
+    assert not refused.success and "No evaluations left" in refused.text
+    done = tools["submit_families"].handler({"families": [1], "summary": "two-level main"})
+    assert done.finished and session.result()["submission"]["families"] == [1]
+    runs = board.db().execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    tools_again = {binding.spec.name: binding for binding in other.tools}
+    tools_again["evaluate_family"].handler({"family": family, "hypothesis": "again"})
+    assert board.db().execute("SELECT COUNT(*) FROM runs").fetchone()[0] == runs  # cached: no new simulation
+
+
+def test_vq_online_board_scores_the_selectors_portfolio(vq_board) -> None:
+    from vista.benchmarks.cachelab.architect import (
+        S3_CONFIG,
+        ArchitectSession,
+        Board,
+        system_prompt,
+    )
+
+    suite = vq_board.cells[0].directory.parent
+    board = Board(vq_board.root.parent / "online", suite, vq_board.vqsim, slots=2, objective="online")
+    used, changes, led = board.online([S3_CONFIG])
+    assert used == [S3_CONFIG] and set(changes.values()) == {0.0} and set(led.values()) == {0}
+    designs = [
+        "maxf=1 ghost=0.5 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+        "maxf=3 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0",
+        "maxf=3 entry=0 overflow=2 gentry=2 st=0.03,0,0,1,1,-1,0 st=0.07,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0",
+    ]
+    # A portfolio of 2 is S3-FIFO plus the design that helps the online choice most.
+    pairs = {d: statistics.mean(board.online([S3_CONFIG, d])[1].values()) for d in designs}
+    portfolio, two, _ = board.online(designs, k=2)
+    assert portfolio == [S3_CONFIG, min(pairs, key=pairs.get)] and statistics.mean(two.values()) == pytest.approx(min(pairs.values()))
+    assert board.online(designs, k=10)[0] == designs  # k over the candidates: all of them
+    rows = board.db().execute("SELECT value FROM runs WHERE mode='full'").fetchall()
+    assert rows and all(len(row[0].split()) == 42 for row in rows)
+    session = ArchitectSession(board, author="a1", max_evaluations=2)
+    tools = {binding.spec.name: binding for binding in session.tools}
+    assert "online selector" in system_prompt(2, "online") and "online selector" not in system_prompt(2)
+    family = {"name": "s-size", "stages": [{"name": "S", "size": [0.05, 0.2], "promote": 2, "up": "M", "ghost": True}, {"name": "M", "promote": 1, "up": "M", "onup": "dec"}]}
+    reply = tools["evaluate_family"].handler({"family": family, "hypothesis": "S size per phase"})
+    assert reply.success and "enter the portfolio" in reply.text and "greedy portfolio" in reply.text, reply.text
+    stats = board.families()[0]["stats"]
+    assert stats["objective"] == "online" and stats["pool_after"]["mean"] <= stats["pool_before"]["mean"] + 1e-12
+    assert sum(d["picked"] for d in stats["per_design"]) + sum(c < 0 for c in stats["chosen"].values()) == 4
+    assert "online over a greedy portfolio" in tools["view_board"].handler({}).text and "c004" in tools["view_cells"].handler({"family": 1}).text

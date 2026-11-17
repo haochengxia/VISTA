@@ -28,8 +28,9 @@ import numpy as np
 
 from .traces import Trace
 
-SANDBOX_SOURCES = ("simulate.py", "policy_api.py", "policy_server.py", "s3fifo.py", "s4fifo.py", "mq.py", "lru.py", "fifo.py")
-REFERENCE_POLICIES = ("s4fifo", "mq", "lru", "fifo")  # importable by policies, recorded as experiments
+PUBLISHED_PORTS = ("arc", "lirs", "twoq", "wtinylfu", "clock", "sieve")  # Python ports of libCacheSim policies, with handover
+SANDBOX_SOURCES = ("simulate.py", "policy_api.py", "policy_server.py", "s3fifo.py", "s4fifo.py", "mq.py", "lru.py", "fifo.py", "vq.py", *(f"{name}.py" for name in PUBLISHED_PORTS))
+REFERENCE_POLICIES = ("s4fifo", "mq", "lru", "fifo", *PUBLISHED_PORTS)  # importable by policies, recorded as experiments
 SANDBOX_DIR = Path(str(files(__package__).joinpath("sandbox")))
 BASELINE_SOURCE = (SANDBOX_DIR / "s3fifo.py").read_text(encoding="utf-8")
 DEFAULT_IMAGE = "python:3.12-slim"
@@ -117,6 +118,15 @@ class LocalSandbox:
         return _parse(completed, jobs)
 
 
+# Memory of one simulated cell: the keys (8 B per request), per-request outcomes,
+# eviction records and the set of objects seen grow with the trace. Measured
+# peak for S3-FIFO on a 45.7M-request trace (6.2M objects, C=1M): 3.17 GB, ~70 B/request;
+# more distinct objects or a larger cache need more.
+KEY_BYTES = 8
+CELL_BASE_BYTES = 1 << 30
+CELL_BYTES_PER_REQUEST = 96
+
+
 class DockerSandbox:
     """One short-lived container per batch: no network, read-only inputs."""
 
@@ -176,17 +186,24 @@ class DockerSandbox:
             "--measure-memory", "--socket", "/sock/policy.sock",
         ]
 
+    def memory_for(self, jobs) -> int:
+        """Container memory (GB) for a batch: enough for its largest trace in
+        every cell that runs at once, and never below `memory_gb`."""
+        requests = max(Path(job["trace"]).stat().st_size // KEY_BYTES for job in jobs)
+        per_cell = CELL_BASE_BYTES + requests * CELL_BYTES_PER_REQUEST
+        return max(self.memory_gb, -(-per_cell * min(self.workers, len(jobs)) // (1 << 30)))
+
     def run(self, jobs, *, work, timeout):
         work.mkdir(parents=True, exist_ok=True)
         mounts: dict[Path, str] = {}
 
-        def inside(host: str, kind: str) -> str:
+        def inside(host: str) -> str:
+            # The file alone, never its directory: a full trace's directory
+            # also holds its manifest (the source's name).
             path = Path(host).resolve()
-            directory = path.parent if kind == "file" else path
-            if directory not in mounts:
-                mounts[directory] = f"/mnt/{len(mounts)}"
-            target = mounts[directory]
-            return f"{target}/{path.name}" if kind == "file" else target
+            if path not in mounts:
+                mounts[path] = f"/mnt/{len(mounts)}/{path.name}"
+            return mounts[path]
 
         translated = []
         outputs = {}
@@ -194,8 +211,8 @@ class DockerSandbox:
             out = Path(job["out"]).resolve()
             out.mkdir(parents=True, exist_ok=True)
             item = dict(job)
-            item["policy"] = inside(job["policy"], "file")
-            item["trace"] = inside(job["trace"], "file")
+            item["policy"] = inside(job["policy"])
+            item["trace"] = inside(job["trace"])
             item["out"] = f"/out/{len(outputs)}"
             outputs[item["out"]] = out
             translated.append(item)
@@ -207,7 +224,7 @@ class DockerSandbox:
             json.dumps({"workers": self.workers, "jobs": translated}), encoding="utf-8"
         )
         command = [
-            "docker", "run", *self._hardening(cpus=self.workers, memory_gb=self.memory_gb, pids=256),
+            "docker", "run", *self._hardening(cpus=self.workers, memory_gb=self.memory_for(jobs), pids=256),
             "-v", f"{work / 'jobs.json'}:/jobs.json:ro",
             "-v", f"{staging}:/out:rw",
         ]
@@ -285,6 +302,9 @@ class Run:
         return freed
 
 
+REFERENCE_REQUESTS = 1_000_000  # the trace length the default time limits are set for
+
+
 class RunStore:
     """Content-addressed cache of simulator outputs under one lab directory."""
 
@@ -302,6 +322,15 @@ class RunStore:
         for path in (self.policies, self.runs):
             path.mkdir(parents=True, exist_ok=True)
         self.fingerprint = simulator_fingerprint()
+
+    def cell_seconds(self, requests: int, verified: bool) -> float:
+        """Time limit for one cell. The limits are set for a 1M-request trace and
+        grow with the trace: a fast cell keeps the same floor on the policy's
+        speed; a verified cell (dominated by socket round trips, slowed most by
+        machine load) gets 1 s more per 2,500 requests."""
+        if verified:
+            return self.verified_timeout + requests / 2500
+        return self.timeout / 2 * max(1.0, requests / REFERENCE_REQUESTS)
 
     def policy_file(self, source: str) -> tuple[str, Path]:
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
@@ -331,13 +360,21 @@ class RunStore:
         int(requests * handover) requests of each trace and the policy takes
         over the live cache there.
         """
-        if len(source) > MAX_POLICY_CHARS:
-            error = RunError(f"policy source exceeds {MAX_POLICY_CHARS} characters")
-            return {(trace.spec.name, capacity): error for trace, capacity in cells}
-        digest, path = self.policy_file(source)
-        results: dict[tuple[str, int], Run | RunError] = {}
+        outcomes = self.simulate_many([(source, trace, capacity) for trace, capacity in cells], verified=verified, handover=handover)
+        return {(trace.spec.name, capacity): outcome for (trace, capacity), outcome in zip(cells, outcomes, strict=True)}
+
+    def simulate_many(
+        self, entries: list[tuple[str, Trace, int]], *, verified: bool = False, handover: float | None = None
+    ) -> list[Run | RunError]:
+        """simulate() for (policy source, trace, capacity) entries that may differ in
+        policy, run as one batch so the sandbox's workers are shared."""
+        results: list[Run | RunError | None] = [None] * len(entries)
         pending = []
-        for trace, capacity in cells:
+        for position, (source, trace, capacity) in enumerate(entries):
+            if len(source) > MAX_POLICY_CHARS:
+                results[position] = RunError(f"policy source exceeds {MAX_POLICY_CHARS} characters")
+                continue
+            digest, path = self.policy_file(source)
             switch = handover_index(trace.requests, handover)
             directory = self.runs / self.key(digest, trace, capacity, verified, switch)
             cached = load_cell(directory)
@@ -346,22 +383,14 @@ class RunStore:
                 shutil.rmtree(directory, ignore_errors=True)
                 cached = None
             if cached is not None:
-                results[(trace.spec.name, capacity)] = cached
+                results[position] = cached
             else:
-                pending.append((trace, capacity, directory, switch))
-        if not pending:
-            return results
-        cell_seconds = self.verified_timeout if verified else self.timeout / 2
-        # Cells run `workers` at a time; the batch limit covers every round.
-        batch_seconds = cell_seconds * -(-len(pending) // max(1, self.sandbox.workers)) + 120
-        jobs = []
-        for trace, capacity, directory, switch in pending:
-            job = {
-                "trace": str(trace.path),
-                "capacity": capacity,
-                "out": str(directory),
-                "max_seconds": cell_seconds,
-            }
+                pending.append((position, trace, capacity, directory, switch, path))
+        jobs, owners = [], []
+        for _, trace, capacity, directory, switch, path in pending:
+            if directory in owners:
+                continue  # the same cell twice: simulate it once
+            job = {"trace": str(trace.path), "capacity": capacity, "out": str(directory), "max_seconds": self.cell_seconds(trace.requests, verified)}
             if switch:
                 job["handover"] = switch
             if verified:
@@ -369,28 +398,34 @@ class RunStore:
             else:
                 job["policy"] = str(path)
             jobs.append(job)
-        with tempfile.TemporaryDirectory(prefix="cachelab-", dir=self.root) as work:
-            try:
-                if verified:
-                    outcomes = run_driver(jobs, work=Path(work), timeout=batch_seconds, workers=self.sandbox.workers)
+            owners.append(directory)
+        if jobs:
+            # Cells run `workers` at a time; the batch limit covers every round.
+            batch_seconds = max(job["max_seconds"] for job in jobs) * -(-len(jobs) // max(1, self.sandbox.workers)) + 120
+            with tempfile.TemporaryDirectory(prefix="cachelab-", dir=self.root) as work:
+                try:
+                    if verified:
+                        outcomes = run_driver(jobs, work=Path(work), timeout=batch_seconds, workers=self.sandbox.workers)
+                    else:
+                        outcomes = self.sandbox.run(jobs, work=Path(work), timeout=batch_seconds)
+                except subprocess.TimeoutExpired:
+                    outcomes = [{"ok": False, "error": "the experiment batch timed out"} for _ in jobs]
+            settled: dict[Path, Run | RunError] = {}
+            for directory, outcome in zip(owners, outcomes, strict=True):
+                cached = load_cell(directory)
+                if isinstance(cached, RunError) and "time limit exceeded" in cached.error:
+                    # Depends on machine load as much as on the policy: report, don't cache.
+                    shutil.rmtree(directory, ignore_errors=True)
+                    settled[directory] = cached
+                elif cached is not None:
+                    settled[directory] = cached
                 else:
-                    outcomes = self.sandbox.run(jobs, work=Path(work), timeout=batch_seconds)
-            except subprocess.TimeoutExpired:
-                outcomes = [{"ok": False, "error": "the experiment batch timed out"} for _ in jobs]
-        for (trace, capacity, directory, _), outcome in zip(pending, outcomes, strict=True):
-            cell = (trace.spec.name, capacity)
-            cached = load_cell(directory)
-            if isinstance(cached, RunError) and "time limit exceeded" in cached.error:
-                # Depends on machine load as much as on the policy: report, don't cache.
-                shutil.rmtree(directory, ignore_errors=True)
-                results[cell] = cached
-            elif cached is not None:
-                results[cell] = cached
-            else:
-                # Batch-level failures (timeouts, a crashed sandbox) are not cached.
-                shutil.rmtree(directory, ignore_errors=True)
-                results[cell] = RunError(outcome.get("error") or "unknown simulator failure")
-        return results
+                    # Batch-level failures (timeouts, a crashed sandbox) are not cached.
+                    shutil.rmtree(directory, ignore_errors=True)
+                    settled[directory] = RunError(outcome.get("error") or "unknown simulator failure")
+            for position, _, _, directory, *_ in pending:
+                results[position] = settled[directory]
+        return results  # type: ignore[return-value]  # every entry is filled above
 
 
 def handover_index(requests: int, handover: float | None) -> int:

@@ -28,9 +28,12 @@ from vista.core.contracts import (
     Visual,
 )
 
-from .lab import BASELINE, Lab, LabError, View
+from .lab import BASELINE, MEMORY_LIMIT_RATIO, Lab, LabError, View
 from .profiles import initial_prompt, lab_specs
 
+MEMORY_WARN_RATIO = 1.8  # the observed part under-states memory: a test run measured 1.92x there and 2.095x on the full trace
+RIVAL_MARGIN = 0.005  # a reference this much better (mean change vs S3-FIFO) on the observed part challenges a decision
+MIN_OWN_EXPERIMENTS = 3  # before committing, when the budget allows at least 10
 VIEW = "chart"
 OBJECTIVE = (
     "Improve S3-FIFO's miss ratio on held-out workloads like the development traces, with "
@@ -57,6 +60,7 @@ class CacheLabSession:
         self.tool_counts: Counter[str] = Counter()
         self.submission_record: dict[str, Any] | None = None
         self.experiment_log: list[dict[str, Any]] = []
+        self.challenged: set[str] = set()  # decisions already challenged once (a second try is accepted)
         self.closed = False
         baseline = lab.overview(BASELINE, visual=visual)
         self.role = role
@@ -91,10 +95,10 @@ class CacheLabSession:
                 lab.public_suite(),
                 self._baseline_table(),
                 role=role,
-                references=lab.references,
+                references=(*lab.references, *sorted(lab.recorded)),
                 shots=worked,
                 signature=signature_block,
-                experience=library.prompt_section() if library is not None else None,
+                experience=library.prompt_section(self.signature) if library is not None else None,
             )
         self.initial = lab.redact(initial)
         observation = self._bundle("baseline-overview", baseline, EvidenceKind.CURRENT)
@@ -113,6 +117,10 @@ class CacheLabSession:
             "view_queues": self._view_queues,
             "view_objects": self._view_objects,
             "view_diff": self._view_diff,
+            "view_opt": self._view_opt,
+            "view_handover": self._view_handover,
+            "view_knobs": self._view_knobs,
+            "view_headroom": self._view_headroom,
             "view_workload": self._view_workload,
             "view_positions": self._view_positions,
             "query_events": self._query_events,
@@ -161,7 +169,11 @@ class CacheLabSession:
         self.counter += 1
         moment = f"{label}-{self.counter:04d}"
         source = "cachelab-" + hashlib.sha256(view.png).hexdigest()[:24] + f"-{self.counter}"
-        return ObservationBundle((Observation(moment, (Visual(VIEW, source, view.png, width, height),), kind),))
+        visuals = [Visual(VIEW, source, view.png, width, height)]
+        for extra in view.more:
+            with Image.open(io.BytesIO(extra)) as image:
+                visuals.append(Visual(f"{VIEW}-{len(visuals) + 1}", "cachelab-" + hashlib.sha256(extra).hexdigest()[:24] + f"-{self.counter}", extra, *image.size))
+        return ObservationBundle((Observation(moment, tuple(visuals), kind),))
 
     def _reply(self, label: str, view: View, *, current: bool = False, success: bool = True) -> ToolReply:
         kind = EvidenceKind.CURRENT if current else EvidenceKind.HISTORICAL
@@ -171,7 +183,9 @@ class CacheLabSession:
 
     def _run_experiment(self, arguments: dict[str, Any]) -> ToolReply:
         handover = arguments["handover_at"] if "handover_at" in arguments else "default"
-        view = self.lab.run_experiment(arguments["name"], arguments["code"], arguments["hypothesis"], arguments["prediction"], handover=handover)
+        view = self.lab.run_experiment(
+            arguments["name"], arguments["code"], arguments["hypothesis"], arguments["prediction"], handover=handover, tune=arguments.get("tune")
+        )
         self.experiment_log.append(
             {
                 "experiment": view.data.get("experiment"),
@@ -185,7 +199,12 @@ class CacheLabSession:
         )
         used = len(self.experiment_log)
         text = view.text + f"\n\nexperiments used: {used} of {self.max_experiments}"
-        return self._reply(f"experiment-{view.data.get('experiment')}", View(text, view.png), current=True, success=bool(view.data.get("ok")))
+        more: tuple[bytes, ...] = ()
+        if view.data.get("ok"):
+            board = self.lab.dashboard(view.data["experiment"], used, self.max_experiments, visual=self.visual)
+            text += "\n\n" + board.text
+            more = (board.png,) if board.png is not None else ()
+        return self._reply(f"experiment-{view.data.get('experiment')}", View(text, view.png, more=more), current=True, success=bool(view.data.get("ok")))
 
     def _test_policy(self, arguments: dict[str, Any]) -> ToolReply:
         view = self.lab.test_policy(arguments["code"])
@@ -238,6 +257,46 @@ class CacheLabSession:
         )
         return self._reply("diff", view)
 
+    def _view_handover(self, arguments: dict[str, Any]) -> ToolReply:
+        try:
+            view = self.lab.handover_view(
+                arguments["experiment"], arguments["trace"], arguments["capacity"], arguments.get("start"), arguments.get("end"), arguments.get("buckets"), visual=self.visual
+            )
+        except LabError as exc:
+            return ToolReply(str(exc), success=False)
+        return self._reply("handover", view)
+
+    def _view_knobs(self, arguments: dict[str, Any]) -> ToolReply:
+        try:
+            view = self.lab.knobs_view(
+                arguments["trace"], arguments["capacity"], arguments.get("start"), arguments.get("end"), arguments.get("buckets"), visual=self.visual
+            )
+        except LabError as exc:
+            return ToolReply(str(exc), success=False)
+        return self._reply("knobs", view)
+
+    def _view_headroom(self, arguments: dict[str, Any]) -> ToolReply:
+        try:
+            view = self.lab.headroom_view(
+                arguments["trace"], arguments["capacity"], arguments.get("start"), arguments.get("end"), arguments.get("buckets"), visual=self.visual
+            )
+        except LabError as exc:
+            return ToolReply(str(exc), success=False)
+        return self._reply("headroom", view)
+
+    def _view_opt(self, arguments: dict[str, Any]) -> ToolReply:
+        view = self.lab.opt_view(
+            arguments["experiment"],
+            arguments["trace"],
+            arguments["capacity"],
+            arguments.get("start"),
+            arguments.get("end"),
+            arguments.get("buckets"),
+            arguments.get("compare_to"),
+            visual=self.visual,
+        )
+        return self._reply("opt", view)
+
     def _query_events(self, arguments: dict[str, Any]) -> ToolReply:
         view = self.lab.events(
             arguments["experiment"],
@@ -261,7 +320,57 @@ class CacheLabSession:
             return experiment, "Submit one of your own experiments, not a reference policy."
         if not experiment.ok:
             return experiment, f"Experiment {experiment.id} did not complete; choose a completed experiment."
+        ratios: dict[Any, float] = {}
+        if experiment.id != BASELINE:
+            # The memory limit decides validity, so check it before the decision is final:
+            # test_policy's verified runs (free when this program was tested already).
+            check = self.lab.test_policy(experiment.source)
+            if not check.data.get("ok"):
+                return experiment, f"{experiment.id} cannot be deployed: {check.text}"
+            ratios = check.data["memory_ratios"]
+            over = {size: ratio for size, ratio in ratios.items() if ratio > MEMORY_LIMIT_RATIO}
+            if over:
+                sizes = ", ".join(f"C={size} ({ratio:.2f}x)" for size, ratio in over.items())
+                return experiment, (
+                    f"{experiment.id} uses more than {MEMORY_LIMIT_RATIO:g}x S3-FIFO's memory at {sizes}, so it would be scored "
+                    "invalid (counted as S3-FIFO unchanged). Choose a policy within the limit at every cache size; S3-FIFO always is."
+                )
+        if self.role == "engineer" and experiment.id not in self.challenged:
+            challenge = self._challenge(experiment.id, ratios)
+            if challenge:
+                self.challenged.add(experiment.id)
+                return experiment, challenge
         return experiment, None
+
+    def _challenge(self, identity: str, ratios: dict[Any, float]) -> str | None:
+        """Reasons to look again before a decision is final, raised once per experiment: a reference
+        that does better on the observed part, memory close to the limit, a barely used budget."""
+        notes = []
+        mine, rival = self.lab.mean_change(identity), self.lab.best_reference(exclude=identity)
+        if mine is not None and rival is not None and rival[1] < mine - RIVAL_MARGIN:
+            notes.append(
+                f"reference `{rival[0]}` does better on the observed part: mean change vs s3fifo {100 * rival[1]:+.2f}% against "
+                f"{100 * mine:+.2f}% for {identity}. Deploy it, build on it (it is importable), or say in the evidence why "
+                f"{identity} will do better on the unseen part."
+            )
+        close = {size: ratio for size, ratio in ratios.items() if ratio > MEMORY_WARN_RATIO}
+        if close:
+            sizes = ", ".join(f"C={size} ({ratio:.2f}x)" for size, ratio in close.items())
+            notes.append(
+                f"memory is close to the {MEMORY_LIMIT_RATIO:g}x limit at {sizes}. It is measured on the observed part; over a "
+                "full trace it can grow (one run went from 1.92x to 2.095x and was scored invalid). Leave room."
+            )
+        own = sum(1 for entry in self.experiment_log if entry.get("ok"))
+        if self.max_experiments >= 10 and own < MIN_OWN_EXPERIMENTS:
+            notes.append(
+                f"you have run {own} of your {self.max_experiments} experiments. Try at least {MIN_OWN_EXPERIMENTS} structurally "
+                "different designs (another policy family, not only other knob values) before deciding."
+            )
+        if not notes:
+            return None
+        return "Not final yet. Before deciding, check:\n" + "\n".join(f"- {note}" for note in notes) + (
+            "\nThen decide again: this experiment is accepted on a second try, or choose another."
+        )
 
     def _read_case(self, arguments: dict[str, Any]) -> ToolReply:
         try:
@@ -277,7 +386,7 @@ class CacheLabSession:
             return ToolReply(problem, success=False)
         from . import experience
 
-        self.feedback_report = self.train_feedback(experiment.id)
+        self.feedback_report = self.train_feedback(experiment.id, verified=True)
         self.decision_record = {
             "experiment": experiment.id,
             "mechanism": arguments["mechanism"],
@@ -285,6 +394,9 @@ class CacheLabSession:
             "limitations": arguments["limitations"],
         }
         text = experience.feedback_text(self.feedback_report["rows"])
+        invalid = experience.validity_text(self.feedback_report)
+        if invalid:
+            text = f"{invalid}\n\n{text}"
         return ToolReply(
             f"Committed {experiment.id}.\n\n{text}\n\nNow record the case and the revised playbook with record_experience.",
             event_text=f"Committed {experiment.id}.\n\n{text}",
@@ -305,11 +417,23 @@ class CacheLabSession:
             "feedback": experience.feedback_text(self.feedback_report["rows"]),
             "outcome": experience.outcome_summary(self.feedback_report),
             "lesson": arguments["lesson"],
+            "cited": list(arguments["cited"]),
             "experiments": self.experiment_log,
         }
-        case_id = self.library.add(record, experiment.source, arguments["playbook"])
-        self.submission_record = {**self.decision_record, "case": case_id, "lesson": arguments["lesson"]}
-        event = f"Recorded {case_id} and the revised playbook. The task is complete."
+        known = {item["id"] for item in self.library.items()}
+        unknown = sorted(set(arguments["cited"]) - known)
+        if unknown:
+            return ToolReply(f"cited rules {unknown} are not in the playbook; known: {', '.join(sorted(known)) or 'none'}", success=False)
+        number = 1 + max((int(case["case"].split("-")[1]) for case in self.library.cases()), default=0)
+        known_cases = {*(case["case"] for case in self.library.cases()), f"case-{number:03d}"}  # this case may cite itself
+        try:
+            self.library.apply_ops(arguments["playbook_ops"], "check", known_cases=known_cases, dry_run=True)
+        except ValueError as exc:
+            return ToolReply(f"playbook operations rejected (nothing was recorded): {exc}", success=False)
+        case_id = self.library.add_case(record, experiment.source)
+        messages, _ = self.library.apply_ops(arguments["playbook_ops"], case_id)
+        self.submission_record = {**self.decision_record, "case": case_id, "lesson": arguments["lesson"], "cited": list(arguments["cited"]), "playbook": messages}
+        event = f"Recorded {case_id}; playbook: {', '.join(messages) or 'unchanged'}. The task is complete."
         return ToolReply(event, finished=True, event_text=event)
 
     def _update_knowledge(self, arguments: dict[str, Any]) -> ToolReply:
@@ -317,19 +441,30 @@ class CacheLabSession:
         unknown = sorted({item["case"] for item in arguments["postmortems"]} - known)
         if unknown:
             return ToolReply(f"unknown cases {unknown}; known: {', '.join(sorted(known))}", success=False)
+        old, new = self.library.knowledge.strip(), arguments["knowledge"].strip()
+        if len(old) >= 2000 and len(new) < 0.5 * len(old):
+            return ToolReply(
+                f"the knowledge would shrink from {len(old):,} to {len(new):,} characters. Keep what still holds and "
+                "change only what the evidence changes (nothing was recorded).",
+                success=False,
+            )
         tag = f"analyst-{len(list((self.library.root / 'knowledge-history').glob('*.md'))) + 1}"
+        try:
+            self.library.apply_ops(arguments["playbook_ops"], tag, known_cases=known, dry_run=True)
+        except ValueError as exc:
+            return ToolReply(f"playbook operations rejected (nothing was recorded): {exc}", success=False)
         for item in arguments["postmortems"]:
             self.library.add_postmortem(item["case"], item["text"], tag)
         self.library.set_knowledge(arguments["knowledge"], tag)
-        self.library.set_playbook(arguments["playbook"], tag)
+        messages, _ = self.library.apply_ops(arguments["playbook_ops"], tag, known_cases=known)
         self.library.clear_proposals()
         self.submission_record = {
             "analysis": tag,
             "postmortems": [item["case"] for item in arguments["postmortems"]],
             "knowledge_chars": len(arguments["knowledge"]),
-            "playbook_chars": len(arguments["playbook"]),
+            "playbook": messages,
         }
-        event = f"Recorded {len(arguments['postmortems'])} postmortems, the knowledge and the playbook ({tag}). The task is complete."
+        event = f"Recorded {len(arguments['postmortems'])} postmortems and the knowledge; playbook: {', '.join(messages) or 'unchanged'} ({tag}). The task is complete."
         return ToolReply(event, finished=True, event_text=event)
 
     def _submit_policy(self, arguments: dict[str, Any]) -> ToolReply:

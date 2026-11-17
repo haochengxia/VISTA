@@ -16,6 +16,8 @@ from .runner import (
     ClaudeCodeRunner,
     ClaudePreflightController,
     ClaudeResult,
+    ServedModelMismatch,
+    foreign_models,
     resolved_model_id,
     validate_instruction_envelope,
 )
@@ -85,6 +87,12 @@ def run_runtime_preflight(
         tool_definitions=list(tools.definitions),
     )
     concrete_model_id = resolved_model_id(result)
+    foreign = foreign_models(result.resolved_models, concrete_model_id)
+    if foreign:
+        raise ServedModelMismatch(
+            f"Claude runtime preflight was served {', '.join(foreign)} instead of "
+            f"{concrete_model_id}; stdout: {result.stdout_path}"
+        )
     if result.final_message.strip() != "READY":
         raise RuntimeError("Claude runtime preflight returned an unexpected result.")
     return result, concrete_model_id

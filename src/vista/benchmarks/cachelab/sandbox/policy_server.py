@@ -58,6 +58,17 @@ class PipeContext(Context):
         self.out.append(f"V h {int(key)} {ghost} {self.now}")
 
 
+def policy_bytes(tracemalloc) -> int:
+    """Live memory allocated by policy code: everything traced except the import
+    system (compiled or unmarshalled code, finder caches) and this server's own
+    buffers. The import system's share varies by up to ~0.25 MB between runs of
+    the same module (bytecode cache, finder state), which would otherwise decide
+    the memory bound at small cache sizes."""
+    excluded = ("<frozen importlib._bootstrap>", "<frozen importlib._bootstrap_external>", __file__, str(HERE / "simulate.py"), tracemalloc.__file__)
+    snapshot = tracemalloc.take_snapshot().filter_traces([tracemalloc.Filter(False, name) for name in excluded])
+    return sum(stat.size for stat in snapshot.statistics("filename"))
+
+
 def serve(path: str, measure: bool = False, socket_path: str | None = None) -> int:
     if socket_path is not None:
         import socket
@@ -128,8 +139,8 @@ def serve(path: str, measure: bool = False, socket_path: str | None = None) -> i
                 reply()
             elif op == "T":
                 if measure:
-                    current, peak = tracemalloc.get_traced_memory()
-                    reply(f"{current},{peak}")
+                    _, peak = tracemalloc.get_traced_memory()
+                    reply(f"{policy_bytes(tracemalloc)},{peak}")
                 else:
                     reply("-1,-1")
             elif op == "I":

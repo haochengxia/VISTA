@@ -18,6 +18,13 @@ ALLOWED_IMPORTS = frozenset(
         "mq",
         "lru",
         "fifo",
+        "arc",
+        "lirs",
+        "twoq",
+        "wtinylfu",
+        "clock",
+        "sieve",
+        "vq",
         "collections",
         "heapq",
         "bisect",
@@ -51,6 +58,17 @@ FORBIDDEN_NAMES = frozenset(
     }
 )
 ALLOWED_DUNDERS = frozenset({"__init__", "__name__", "__slots__", "__future__"})
+# Public attributes that lead from an allowed module to the interpreter, the
+# operating system or the simulator's stack frames (e.g. typing.sys.modules).
+FORBIDDEN_ATTRIBUTES = frozenset(
+    {
+        "sys", "os", "modules", "builtins", "importlib", "subprocess", "socket", "io", "pathlib", "shutil",
+        "f_locals", "f_globals", "f_back", "f_code", "f_builtins", "gi_frame", "cr_frame", "ag_frame",
+        "tb_frame", "tb_next", "system", "popen", "spawn", "fork", "environ",
+    }
+)
+# Attribute access by name: only with a constant, public name.
+DYNAMIC_ATTRIBUTE_CALLS = frozenset({"getattr", "setattr", "delattr", "hasattr"})
 
 
 def check_policy(source: str) -> list[str]:
@@ -72,7 +90,17 @@ def check_policy(source: str) -> list[str]:
                 problems.append(f"line {line}: import from {node.module!r} is not allowed")
         elif isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
             problems.append(f"line {line}: {node.id!r} is not allowed")
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in DYNAMIC_ATTRIBUTE_CALLS:
+            target = node.args[0] if node.args else None
+            name = node.args[1] if len(node.args) > 1 else None
+            public = isinstance(name, ast.Constant) and isinstance(name.value, str) and not name.value.startswith("_") and name.value not in FORBIDDEN_ATTRIBUTES
+            # The policy's own state may be read through a plain variable (S3-FIFO's export does).
+            own = target is not None and not _foreign(target) and isinstance(name, ast.Name)
+            if not (public or own):
+                problems.append(f"line {line}: {node.func.id}() needs a constant, public attribute name (or self/cls and a variable)")
         elif isinstance(node, ast.Attribute):
+            if node.attr in FORBIDDEN_ATTRIBUTES:
+                problems.append(f"line {line}: attribute {node.attr!r} is not allowed")
             if node.attr.startswith("__") and node.attr not in ALLOWED_DUNDERS:
                 problems.append(f"line {line}: attribute {node.attr!r} is not allowed")
             if node.attr.startswith("_") and node.attr[1:2] != "_" and _foreign(node.value):

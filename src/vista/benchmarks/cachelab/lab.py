@@ -11,8 +11,11 @@ policy metadata so that unbounded history does not count as an improvement.
 
 from __future__ import annotations
 
+import ast
+import itertools
 import json
 import math
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,11 +48,18 @@ from .traces import (
 )
 
 BASELINE = "s3fifo"
+TUNED_REFERENCE = "s3fifo-tuned"  # the prefix-tuned baseline, recorded by the host as a reference
 REFERENCE_NAMES = {
     "s4fifo": "S4-FIFO heuristic, default knobs (OSDI 2026)",
     "mq": "MQ, Multi-Queue (Zhou et al., USENIX ATC 2001)",
     "lru": "LRU",
     "fifo": "FIFO",
+    "arc": "ARC (Megiddo and Modha, FAST 2003)",
+    "lirs": "LIRS (Jiang and Zhang, SIGMETRICS 2002)",
+    "twoq": "2Q (Johnson and Shasha, VLDB 1994)",
+    "wtinylfu": "W-TinyLFU (Einziger et al., ACM TOS 2017; Caffeine)",
+    "clock": "CLOCK",
+    "sieve": "SIEVE (Zhang et al., NSDI 2024)",
 }
 SAME = 0.001  # |relative change| below 0.1% counts as unchanged
 MEMORY_LIMIT_RATIO = 2.0
@@ -57,8 +67,63 @@ MAX_EVENT_ROWS = 200
 OUTCOME_NAMES = {0: "hit", 1: "miss-cold", 2: "miss", 3: "miss-bypass"}
 
 
+MAX_TUNE_VARIANTS = 12
+_KNOB = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _trusted_constants() -> set[str]:
+    """UPPER_CASE names in the policy modules a candidate may build on."""
+    names: set[str] = set()
+    for path in SANDBOX_DIR.glob("*.py"):
+        if path.stem not in ("simulate", "policy_server"):
+            names.update(re.findall(r"\b[A-Z][A-Z0-9_]*\b", path.read_text(encoding="utf-8")))
+    return names
+
+
+def tuned_variants(code: str, tune: dict[str, list[Any]]) -> list[tuple[dict[str, Any], str]]:
+    """(assignment, source) for every combination of `tune`, in grid order: the
+    module followed by a subclass of CachePolicy that sets the constants."""
+    if not isinstance(tune, dict) or not 1 <= len(tune) <= 3:
+        raise LabError('tune takes 1 to 3 constants, e.g. {"SMALL_RATIO": [0.05, 0.1, 0.2]}')
+    known = _trusted_constants() | set(re.findall(r"\b[A-Z][A-Z0-9_]*\b", code))
+    for knob, values in tune.items():
+        if not _KNOB.match(knob):
+            raise LabError(f"tune: {knob!r} is not an UPPER_CASE class constant")
+        if knob not in known:
+            raise LabError(f"tune: {knob} appears neither in your code nor in the modules it can build on, so setting it would change nothing")
+        if not isinstance(values, list) or not 2 <= len(values) <= 8 or len(set(map(repr, values))) != len(values):
+            raise LabError(f"tune: give {knob} 2 to 8 distinct values")
+        if not all(isinstance(value, (int, float, bool)) and math.isfinite(value) for value in values):
+            raise LabError(f"tune: values of {knob} must be numbers or booleans")
+    count = math.prod(len(values) for values in tune.values())
+    if count > MAX_TUNE_VARIANTS:
+        raise LabError(f"tune: {count} combinations; at most {MAX_TUNE_VARIANTS}")
+    variants = []
+    for values in itertools.product(*tune.values()):
+        assignment = dict(zip(tune, values, strict=True))
+        body = "\n".join(f"    {knob} = {value!r}" for knob, value in assignment.items())
+        variants.append((assignment, f"{code.rstrip()}\n\n\nclass TunedCachePolicy(CachePolicy):\n{body}\n\n\nCachePolicy = TunedCachePolicy\n"))
+    return variants
+
+
 class LabError(ValueError):
     """A request the agent can fix (unknown id, bad window, ...)."""
+
+
+REPEAT = 1e-4  # every cell's misses within 0.01% of an earlier experiment's: the same behavior
+
+
+def program_key(code: str) -> str:
+    """The program without comments, docstrings or formatting, so equivalent edits compare equal."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code.strip()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.dump(tree, annotate_fields=False, include_attributes=False)
 
 
 @dataclass
@@ -96,6 +161,7 @@ class View:
     text: str
     png: bytes | None = None
     data: dict[str, Any] = field(default_factory=dict)
+    more: tuple[bytes, ...] = ()  # further images, shown after `png`
 
 
 def _prune(cells) -> None:
@@ -146,7 +212,10 @@ class Lab:
         # Already materialized traces (the engineer role's prefix).
         self.dev.update({trace.spec.name: trace for trace in dev_traces})
         # Strings that must never reach the agent (paths, source names), longest first.
-        self._redactions = sorted({str(self.root), *(r for r in redactions if r)}, key=len, reverse=True)
+        # The root also as resolved (a symlinked runs directory shows up resolved in
+        # host-side tracebacks) and the simulator's install directory.
+        hidden = {str(self.root), str(self.root.resolve()), str(SANDBOX_DIR), str(SANDBOX_DIR.resolve())}
+        self._redactions = sorted({*hidden, *(r for r in redactions if r)}, key=len, reverse=True)
         self.heldout_specs = tuple(heldout)
         self.buckets = buckets
         # `sizes` fixes a trace's cache sizes (the analyst replays each case at its engineer's sizes).
@@ -157,6 +226,8 @@ class Lab:
         self._serial = 0
         self._indexes: dict[str, analysis.TraceIndex] = {}
         self._distances: dict[str, np.ndarray] = {}
+        self._opt: dict[tuple[str, int], dict[str, Any]] = {}
+        self._comparisons: dict[str, dict[str, Any]] = {}
         # S3-FIFO taking over from S3-FIFO changes nothing, so the baseline never switches.
         baseline = self._record(BASELINE, "S3-FIFO baseline", BASELINE_SOURCE, "reference policy", None, handover=None)
         if not baseline.ok:
@@ -307,15 +378,31 @@ class Lab:
     # -- operations ------------------------------------------------------------------
 
     def run_experiment(
-        self, name: str, code: str, hypothesis: str, prediction: dict[str, Any] | None, *, handover: float | None | str = "default"
+        self,
+        name: str,
+        code: str,
+        hypothesis: str,
+        prediction: dict[str, Any] | None,
+        *,
+        handover: float | None | str = "default",
+        tune: dict[str, list[Any]] | None = None,
     ) -> View:
         """`handover`: the share of each trace S3-FIFO serves before this policy
-        takes over (0 or None: cold start); by default the lab's setting."""
+        takes over (0 or None: cold start); by default the lab's setting.
+        `tune`: class constants of CachePolicy and values to try; every
+        combination is simulated and the best one (after the handover) is
+        recorded as this one experiment."""
         if handover != "default":
             handover = float(handover) if handover else None
             if handover is not None and not 0 < handover <= 0.9:
                 raise LabError("handover_at must be 0 (cold start) or a fraction up to 0.9")
+        tuning = None
+        if tune:
+            variants = tuned_variants(code, tune)  # validates; raises LabError
+            if not check_policy(code):
+                code, tuning = self._tune(variants, self.handover if handover == "default" else handover)
         identity = self._next_identity()
+        repeated = self.same_program(code)
         experiment = self._record(identity, name, code, hypothesis, prediction, handover=handover)
         if experiment.problems:
             text = f"experiment {identity} ({name}) was rejected before simulation:\n- " + "\n- ".join(experiment.problems)
@@ -332,18 +419,116 @@ class Lab:
         comparison = self.compare(experiment, self.experiments[BASELINE])
         warnings = self._instrumentation_warnings(experiment)
         parts = [f"experiment {identity} ({name}) completed.", self._handover_text(experiment), self._comparison_text(comparison, BASELINE, identity)]
+        if tuning:
+            parts.insert(1, tuning)
         if prediction and prediction.get("expected_change_pct") is not None:
             expected = float(prediction["expected_change_pct"])
             observed = comparison["mean_relative_change"] * 100
             parts.append(f"prediction check: expected {expected:+.2f}%, observed {observed:+.2f}% (error {observed - expected:+.2f} points)")
+        same = self.same_behavior(experiment)
+        if same is not None:
+            other, gap = same
+            how = "exactly the same misses" if gap == 0 else f"the same misses within {100 * gap:.3f}%"
+            cause = "the same program" if other in repeated else "a different program"
+            parts.append(
+                f"repeat: {identity} has {how} as {other} in every cell ({cause}). "
+                + ("The change did not alter any decision here; " if other == BASELINE else "")
+                + "check that the changed code path runs on these traces (knobs may act lazily after a handover) before spending more experiments on it."
+            )
+        elif repeated:
+            parts.append(f"note: {identity} is the same program as {', '.join(repeated)} (comments and formatting ignored).")
         if warnings:
             parts.append("instrumentation warnings (views of this experiment may be wrong until fixed):\n- " + "\n- ".join(warnings))
         overview = self.overview(identity, BASELINE)
         return View(
             "\n\n".join(parts) + "\n\n" + overview.text,
             overview.png,
-            {"experiment": identity, "ok": True, "mean_relative_change": comparison["mean_relative_change"]},
+            {"experiment": identity, "ok": True, "mean_relative_change": comparison["mean_relative_change"], "same_as": same[0] if same else None},
         )
+
+    # -- progress dashboard (the attention anchor) ------------------------------------
+
+    def _comparison(self, identity: str) -> dict[str, Any]:
+        if identity not in self._comparisons:
+            self._comparisons[identity] = self.compare(self.experiments[identity], self.experiments[BASELINE])
+        return self._comparisons[identity]
+
+    def mean_change(self, identity: str) -> float | None:
+        """Mean change vs S3-FIFO over the observed cells (after the takeover, if any)."""
+        if identity == BASELINE:
+            return 0.0
+        experiment = self.experiments.get(identity)
+        if experiment is None or not experiment.ok:
+            return None
+        changes = self._cell_changes(self._comparison(identity))
+        return float(np.mean(changes)) if changes else None
+
+    def best_reference(self, exclude: str = BASELINE) -> tuple[str, float] | None:
+        """The reference policy with the lowest mean change vs S3-FIFO on the observed part."""
+        best = None
+        for name in (*self.references, *sorted(self.recorded)):
+            mean = None if name == exclude else self.mean_change(name)
+            if mean is not None and (best is None or mean < best[1]):
+                best = (name, mean)
+        return best
+
+    def _cell_changes(self, comparison: dict[str, Any]) -> list[float]:
+        return [row.get("after_relative", row["relative"]) for row in comparison["rows"]]
+
+    def worst_windows(self, identity: str, count: int = 5, windows: int = 16) -> list[dict[str, Any]]:
+        """The (cell, window) pairs where an experiment loses most to S3-FIFO, after its takeover."""
+        experiment, base = self.experiments[identity], self.experiments[BASELINE]
+        items = []
+        for trace, capacity in self.cells:
+            name = trace.spec.name
+            cand, ref = experiment.cells.get((name, capacity)), base.cells.get((name, capacity))
+            if not isinstance(cand, Run) or not isinstance(ref, Run):
+                continue
+            start = handover_index(trace.requests, experiment.handover) if experiment.handover else 0
+            bounds = analysis.edges(start, trace.requests, windows)
+            try:
+                mine, theirs = analysis.miss_series(cand, bounds), analysis.miss_series(ref, bounds)
+            except FileNotFoundError:
+                continue
+            for i in range(len(bounds) - 1):
+                if theirs[i] > 0:
+                    items.append(
+                        {"trace": name, "capacity": capacity, "start": int(bounds[i]), "end": int(bounds[i + 1]), "relative": float((mine[i] - theirs[i]) / theirs[i]), "s3fifo": float(theirs[i]), "candidate": float(mine[i])}
+                    )
+        items.sort(key=lambda item: -item["relative"])
+        return [item for item in items[:count] if item["relative"] > 0]
+
+    def dashboard(self, latest: str, used: int, budget: int, *, visual: bool = True) -> View:
+        """Where the search stands: every experiment against S3-FIFO per cell, the best so far, and
+        where the latest experiment loses most. Returned with every experiment."""
+        references = [name for name in (*self.references, *sorted(self.recorded)) if self.experiments[name].ok]
+        mine = [identity for identity in self.experiments if identity != BASELINE and identity not in references and not self.is_reference(identity) and self.experiments[identity].ok]
+        rows = []
+        for identity in [*references, *mine]:
+            comparison = self._comparison(identity)
+            changes = self._cell_changes(comparison)
+            rows.append({"id": identity, "name": self.experiments[identity].name, "reference": identity in references, "mean": float(np.mean(changes)) if changes else math.nan, "cells": changes})
+        columns = [f"{row['trace']} C={row['capacity']}" for row in self._comparison(BASELINE)["rows"]] if rows else []
+        ours = [row for row in rows if not row["reference"]]
+        best = min(ours, key=lambda row: row["mean"]) if ours else None
+        worst = self.worst_windows(latest) if latest in self.experiments and self.experiments[latest].ok else []
+        scope = "after the handover point" if self.handover else "over each trace"
+        lines = [f"progress after {latest} ({used} of {budget} experiments used); change vs s3fifo {scope}, per cell:"]
+        if best is not None:
+            lines.append(f"best so far: {best['id']} ({best['name'][:60]}) mean {_pct(best['mean'])}")
+        lines.append("experiment  mean     " + "  ".join(columns))
+        shown = [row for row in rows if row["reference"]] + ours[-12:]
+        if best is not None and best not in shown:
+            shown.append(best)
+        for row in shown:
+            lines.append(f"{row['id']:<10}  {_pct(row['mean'])}  " + "  ".join(_pct(value) for value in row["cells"]))
+        if worst:
+            lines.append(f"where {latest} loses most (16 windows per cell, change vs s3fifo in that window):")
+            lines += [f"- {item['trace']} C={item['capacity']} requests {item['start']:,}-{item['end']:,}: {_pct(item['relative'])} ({item['s3fifo']:.4f} -> {item['candidate']:.4f})" for item in worst]
+        png = None
+        if visual and rows:
+            png = views.render_dashboard(rows, columns, latest=latest, best=best["id"] if best else None, title=f"Progress after {latest}: {used} of {budget} experiments", subtitle=f"change in miss ratio vs S3-FIFO {scope}; blue = fewer misses")
+        return View("\n".join(lines), png, {"best": best, "worst_windows": worst})
 
     def _handover_text(self, experiment: Experiment) -> str:
         if not experiment.handover:
@@ -380,26 +565,96 @@ class Lab:
                 warnings.append(f"{trace} C={capacity}: sizes() disagreed with residency {summary['size_mismatches']} times, e.g. {summary['size_examples'][:1]}")
         return warnings[:6]
 
+    def _tune(self, variants: list[tuple[dict[str, Any], str]], handover: float | None) -> tuple[str, str]:
+        """Simulate every variant on every cell; return the best source and a summary."""
+        base = self.experiments[BASELINE]
+        runs = self.store.simulate_many([(source, trace, capacity) for _, source in variants for trace, capacity in self.cells], handover=handover)
+        scored = []
+        for index, (assignment, source) in enumerate(variants):
+            cells = runs[index * len(self.cells) : (index + 1) * len(self.cells)]
+            trial = Experiment("tune", "tune", source, "", None, {(trace.spec.name, capacity): run for (trace, capacity), run in zip(self.cells, cells, strict=True)})
+            if not trial.ok:
+                scored.append((math.inf, index, assignment, trial))
+                continue
+            comparison = self.compare(trial, base)
+            value = comparison["mean_relative_change_after_handover"]
+            scored.append((comparison["mean_relative_change"] if value is None else value, index, assignment, trial))
+        scored.sort(key=lambda item: (item[0], item[1]))
+        best = scored[0]
+        for _, _, _, trial in scored[1:]:  # long traces: hundreds of MB per run
+            for run in trial.cells.values():
+                if isinstance(run, Run):
+                    run.drop_arrays()
+        shown = ", ".join(
+            ("*" if item is best else "") + ",".join(f"{k}={v!r}" for k, v in item[2].items()) + (" failed" if math.isinf(item[0]) else f" {100 * item[0]:+.2f}%")
+            for item in scored
+        )
+        text = (
+            f"tuned {len(variants)} combinations of {', '.join(variants[0][0])} on the observed part (mean change vs s3fifo "
+            f"after the handover; * = recorded here): {shown}. The choice is fitted to what you see; check later windows."
+        )
+        return best[3].source, text
+
+    def same_program(self, code: str) -> list[str]:
+        """Earlier experiments running this program (comments, docstrings and formatting ignored)."""
+        key = program_key(code)
+        return [e.id for e in self.experiments.values() if e.id not in self.references and program_key(e.source) == key]
+
+    def same_behavior(self, experiment: Experiment) -> tuple[str, float] | None:
+        """The earlier experiment (or reference) whose misses match this one's in every cell, closest first."""
+        if not experiment.ok:
+            return None
+        mine = {cell: run.summary["misses"] for cell, run in experiment.cells.items()}
+        found = []
+        for other in self.experiments.values():
+            if other.id == experiment.id or not other.ok or set(other.cells) != set(mine):
+                continue
+            gap = max(abs(mine[cell] - run.summary["misses"]) / max(1, run.summary["misses"]) for cell, run in other.cells.items())
+            if gap <= REPEAT:
+                found.append((gap, other.id))
+        return (min(found)[1], min(found)[0]) if found else None
+
     def test_policy(self, code: str) -> View:
-        """Static check plus one verified cell with memory measured; no experiment is recorded."""
+        """Static check plus verified runs at the smallest, a middle and the largest cache
+        size with memory measured; no experiment is recorded."""
         problems = check_policy(code)
         if problems:
             return View("rejected before simulation:\n- " + "\n- ".join(problems), data={"ok": False})
         name, trace = next(iter(self.dev.items()))
-        capacity = self.capacities[name][1 if len(self.capacities[name]) > 1 else 0]
-        cell = (trace, capacity)
-        candidate = self.store.simulate(code, [cell], verified=True, handover=self.handover)[(name, capacity)]
-        if isinstance(candidate, RunError):
-            return View(f"policy failed on {name} C={capacity}: {candidate.error}\n{candidate.traceback[-2500:]}", data={"ok": False})
-        base = self.store.simulate(BASELINE_SOURCE, [cell], verified=True)[(name, capacity)]
-        ratio = self._memory_ratio(candidate, base)
+        sizes = self.capacities[name]
+        # Fixed overheads weigh most in small caches, so the bound is checked at both ends.
+        chosen = sorted({sizes[0], sizes[len(sizes) // 2], sizes[-1]})
+        cells = [(trace, capacity) for capacity in chosen]
+        candidates = self.store.simulate(code, cells, verified=True, handover=self.handover)
+        for capacity in chosen:
+            candidate = candidates[(name, capacity)]
+            if isinstance(candidate, RunError):
+                return View(f"policy failed on {name} C={capacity}: {candidate.error}\n{candidate.traceback[-2500:]}", data={"ok": False})
+        bases = self.store.simulate(BASELINE_SOURCE, cells, verified=True)
+        ratios = {capacity: self._memory_ratio(candidates[(name, capacity)], bases[(name, capacity)]) for capacity in chosen}
+        over = [capacity for capacity, ratio in ratios.items() if ratio > MEMORY_LIMIT_RATIO]
+        runs = [candidates[(name, capacity)] for capacity in chosen]
         # No miss ratio: this check is free, so it must not double as an unmetered experiment.
         text = (
-            f"policy ran on {name} C={capacity} (verified mode); policy memory {candidate.summary['policy_memory_bytes']:,} B "
-            f"= {ratio:.2f}x s3fifo (limit {MEMORY_LIMIT_RATIO:.1f}x); "
-            f"instrumentation errors {candidate.summary['instrumentation_errors']}, size mismatches {candidate.summary['size_mismatches']}."
+            f"policy ran on {name} (verified mode); policy memory vs s3fifo: "
+            + ", ".join(f"C={capacity} {ratio:.2f}x ({candidates[(name, capacity)].summary['policy_memory_bytes']:,} B)" for capacity, ratio in ratios.items())
+            + f"; the limit is {MEMORY_LIMIT_RATIO:.1f}x at every cache size. "
+            f"instrumentation errors {sum(run.summary['instrumentation_errors'] for run in runs)}, "
+            f"size mismatches {sum(run.summary['size_mismatches'] for run in runs)}."
         )
-        return View(text, data={"ok": True, "memory_ratio": ratio})
+        if over:
+            text += (
+                f"\nover the memory limit at C={', '.join(str(capacity) for capacity in over)}: a decision with this policy would be "
+                "scored invalid. Per-policy and per-object overheads weigh most in small caches."
+            )
+        ratio = max(ratios.values())
+        same = self.same_program(code)
+        if same:
+            text += (
+                f"\nnote: this is the same program as {', '.join(same)} (comments, docstrings and formatting ignored); "
+                "its results are already known, so running it again would spend an experiment on nothing new."
+            )
+        return View(text, data={"ok": True, "memory_ratio": ratio, "memory_ratios": {str(c): round(r, 3) for c, r in ratios.items()}, "same_program": same})
 
     @staticmethod
     def _memory_ratio(candidate: Run, base: Run) -> float:
@@ -663,6 +918,330 @@ class Lab:
                 marks=sorted({*self._marks(identity, trace, capacity), *self._marks(base_id, trace, capacity)}),
             )
         return View("\n".join(lines), png)
+
+    def handover_view(self, identity: str, trace: str, capacity: int, start: int | None = None, end: int | None = None, buckets: int | None = None, *, visual: bool = True) -> View:
+        """The deployed takeover against the same policy from a cold cache and S3-FIFO continuing."""
+        capacity = self.capacity(trace, capacity)
+        experiment = self.experiment(identity)
+        if not experiment.handover:
+            raise LabError(f"{identity} ran from a cold cache; view_handover needs an experiment that took over at a handover point")
+        warm = experiment.run(trace, capacity)
+        switch = warm.summary.get("handover_at")
+        if not switch:
+            raise LabError(f"{identity} has no handover on {trace}")
+        cell = (self.dev[trace], capacity)
+        cold = self.store.simulate(experiment.source, [cell])[(trace, capacity)]
+        if isinstance(cold, RunError):
+            raise LabError(f"{identity} failed from a cold cache: {cold.error}")
+        base = self.experiment(BASELINE).run(trace, capacity)
+        n = self.dev[trace].requests
+        first = max(0, switch - (n - switch) // 8) if start is None else start
+        first, stop = self.window(trace, first, end)
+        if not first <= switch < stop:
+            raise LabError(f"the window must contain the handover at request {switch}")
+        profile = analysis.handover_profile(base, warm, cold, switch, first, stop, buckets or 64)
+        totals = profile["totals"]
+        settled = (
+            f"90% of the transition cost was paid by request {totals['settled_at']:,} ({totals['settled_at'] - switch:,} requests after the handover)"
+            if totals["settled_at"] is not None
+            else "the takeover cost nothing beyond the decision (warm did at least as well as cold)"
+        )
+        lines = [
+            f"handover of {identity} on {trace} C={capacity}: S3-FIFO served requests [0, {switch}), {identity} took over its live cache; "
+            f"compared with {identity} from a cold cache and S3-FIFO continuing, requests [{first}, {stop})",
+            f"after the handover ({totals['requests_after']:,} requests), relative to s3fifo's {totals['base_misses_after']:,} misses: "
+            f"deployed (warm) {_pct(totals['deployed_effect'])} = decision (cold) {_pct(totals['decision_effect'])} "
+            f"+ transition (warm - cold) {_pct(totals['transition_cost'])}",
+            settled,
+            f"inherited objects evicted after the handover: {totals['inherited_evictions']:,} ({totals['drained_share_of_cache']:.0%} of the cache), "
+            f"{totals['inherited_evicted_unused']:,} of them with no hit while resident",
+            "window starts: " + " ".join(str(int(b)) for b in profile["bounds"][:-1]),
+            "miss_ratio[s3fifo]: " + _series(profile["base"]),
+            "miss_ratio[warm]: " + _series(profile["warm"]),
+            "miss_ratio[cold]: " + _series(profile["cold"]),
+            "inherited evictions per window: " + " ".join(str(int(v)) for v in profile["inherited_evictions"]),
+            "own evictions per window: " + " ".join(str(int(v)) for v in profile["fresh_evictions"]),
+        ]
+        png = None
+        if visual:
+            png = views.render_handover(
+                profile,
+                name=identity,
+                title=f"{identity} taking over S3-FIFO on {trace}, C={capacity:,}",
+                subtitle=f"deployed {_pct(totals['deployed_effect'])} = decision {_pct(totals['decision_effect'])} + transition {_pct(totals['transition_cost'])} vs s3fifo after the handover",
+            )
+        return View("\n".join(lines), png, {"handover": totals})
+
+    def opt(self, trace: str, capacity: int) -> dict[str, Any]:
+        """Belady (OPT) on one cell, computed once per lab and kept on disk."""
+        cache_key = (trace, capacity)
+        if cache_key in self._opt:
+            return self._opt[cache_key]
+        path = self.root / "opt" / f"{self.dev[trace].sha256[:16]}-{capacity}.npz"
+        if path.is_file():
+            with np.load(path) as data:
+                result = {name: data[name] for name in ("hit", "evict_t", "evict_gap")}
+        else:
+            result = analysis.belady(self.index(trace), capacity)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            partial = path.with_name(path.name + ".partial.npz")
+            np.savez_compressed(partial, **result)
+            partial.replace(path)
+        result["boundary"] = analysis.belady_boundary(result)
+        self._opt[cache_key] = result
+        return result
+
+    def opt_view(
+        self, identity: str, trace: str, capacity: int, start: int | None, end: int | None, buckets: int | None = None, compare_to: str | None = None, *, visual: bool = True
+    ) -> View:
+        """An experiment against Belady: avoidable misses (by cause) and good evictions."""
+        capacity = self.capacity(trace, capacity)
+        experiment = self.experiment(identity)
+        run = experiment.run(trace, capacity)
+        opt = self.opt(trace, capacity)
+        first, stop = self.window(trace, start, end)
+        boundary = opt["boundary"]
+        profile = analysis.opt_profile(run, opt, self.index(trace), first, stop, buckets or 64, boundary)
+        totals = profile["totals"]
+        boundary_text = "never (OPT evicted only objects that are not requested again)" if not np.isfinite(boundary) else f"{boundary:,.0f} requests = {boundary / capacity:.2f} C"
+        by_queue = ", ".join(f"{name} {count}" for name, count in totals["avoidable_by_queue"].items()) or "none"
+        lines = [
+            f"OPT (Belady) comparison of {identity} on {trace} C={capacity}, requests [{first}, {stop})"
+            + "".join(f"; {identity} took over at request {mark}" for mark in self._marks(identity, trace, capacity)),
+            f"misses: {identity} {totals['misses']} ({totals['misses'] / totals['requests']:.4f}), OPT {totals['opt_misses']} "
+            f"({totals['opt_misses'] / totals['requests']:.4f}); avoidable (OPT hits, {identity} misses) {totals['avoidable']} = "
+            f"{100 * totals['avoidable_share_of_misses']:.1f}% of {identity}'s misses; by the queue the key was last evicted from: {by_queue}",
+            f"Belady boundary (OPT rarely evicts an object requested again sooner): {boundary_text}",
+            "evictions: " + "; ".join(f"{name} {data['count']} (good share {data['good_share']:.3f})" for name, data in totals["evictions"].items()),
+            "window starts: " + " ".join(str(int(b)) for b in profile["bounds"][:-1]),
+            f"miss_ratio[{identity}]: " + _series(profile["miss_ratio"]),
+            "miss_ratio[OPT]: " + _series(profile["opt_miss_ratio"]),
+            "avoidable per 1k: " + _series(profile["avoidable"] * 1000, 1),
+        ]
+        lines += [f"avoidable per 1k, evicted from {name}: " + _series(series * 1000, 1) for name, series in profile["avoidable_by_queue"].items()]
+        lines += [f"good eviction share[{name}]: " + _series(series) for name, series in profile["good_evictions"].items()]
+        diff = None
+        if compare_to:
+            base = self.experiment(compare_to).run(trace, capacity)
+            diff = analysis.opt_diff(base, run, opt, first, stop, buckets or 64)
+            lines += [
+                f"against {compare_to}: of its {diff['totals']['base_avoidable']} avoidable misses {identity} fixed {diff['totals']['fixed']} "
+                f"and created {diff['totals']['created']} new ones",
+                "fixed per 1k: " + _series(diff["fixed"] * 1000, 1),
+                "created per 1k: " + _series(diff["created"] * 1000, 1),
+            ]
+        png = None
+        if visual:
+            png = views.render_opt(
+                profile,
+                name=identity,
+                colors=views.queue_colors(run.queues, run.ghosts),
+                title=f"{identity} vs OPT on {trace}, C={capacity:,}" + (f" (against {compare_to})" if compare_to else ""),
+                subtitle=f"requests {first:,}–{stop:,}; avoidable = {100 * totals['avoidable_share_of_misses']:.1f}% of misses; {experiment.name}",
+                diff=diff,
+                base_name=compare_to or "",
+                marks=self._marks(identity, trace, capacity),
+            )
+        return View("\n".join(lines), png, {"opt": totals})
+
+    def knob_sweep(self, trace: str, capacity: int) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, str]]:
+        """Miss masks of S3-FIFO with one knob changed at a time (the values the
+        prefix-tuned baseline searches), taking over at the lab's handover point
+        like the agent's experiments. Simulated once per cell, kept as packed bits;
+        the runs' own logs are dropped (nothing else views them)."""
+        from .search import DEFAULT, GRID, policy_source  # search imports this module
+
+        workload = self.trace(trace)
+        defaults = {knob: repr(value) for knob, value in DEFAULT.items()}
+        wanted = [(knob, value) for knob, values in GRID.items() for value in values if value != DEFAULT[knob]]
+        n, switch = workload.requests, handover_index(workload.requests, self.handover)
+        path = self.root / "knobs" / f"{workload.sha256[:16]}-{capacity}-{switch}-{self.store.fingerprint[:12]}.npz"
+        names = [f"{knob}={value!r}" for knob, value in wanted]
+        if path.is_file():
+            with np.load(path) as data:
+                packed = {name: data[name] for name in names}
+        else:
+            entries = [(policy_source({knob: value}), workload, capacity) for knob, value in wanted]
+            runs = self.store.simulate_many(entries, handover=self.handover)
+            failed = [f"{name}: {run.error}" for name, run in zip(names, runs, strict=True) if isinstance(run, RunError)]
+            if failed:
+                raise LabError("the knob sweep failed: " + "; ".join(failed[:3]))
+            packed = {}
+            for name, run in zip(names, runs, strict=True):
+                packed[name] = np.packbits(run.outcome != HIT)
+                run.drop_arrays()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            partial = path.with_name(path.name + ".partial.npz")
+            np.savez_compressed(partial, **packed)
+            partial.replace(path)
+        variants: dict[str, dict[str, np.ndarray]] = {}
+        for (knob, value), name in zip(wanted, names, strict=True):
+            variants.setdefault(knob, {})[repr(value)] = np.unpackbits(packed[name], count=n).astype(bool)
+        return variants, defaults
+
+    def knobs_view(self, trace: str, capacity: int, start: int | None = None, end: int | None = None, buckets: int | None = None, *, visual: bool = True) -> View:
+        """What each S3-FIFO knob is worth on its own, per window; free (no experiment)."""
+        capacity = self.capacity(trace, capacity)
+        variants, defaults = self.knob_sweep(trace, capacity)
+        n = self.trace(trace).requests
+        switch = handover_index(n, self.handover)
+        first, stop = self.window(trace, switch if start is None else start, end)
+        base = self.experiment(BASELINE).run(trace, capacity)
+        profile = analysis.knob_profile(base.outcome != HIT, variants, defaults, first, stop, buckets or 16)
+        setting = ", ".join(f"{knob}={value}" for knob, value in defaults.items())
+        start_text = f"each variant took over S3-FIFO's live cache at request {switch:,}" if switch else "each variant ran from a cold cache"
+        lines = [
+            f"knob sweep of S3-FIFO on {trace} C={capacity}: one knob changed at a time from the default ({setting}); {start_text}; "
+            f"requests [{first}, {stop}), {len(profile['bounds']) - 1} windows; S3-FIFO misses {profile['base_total']:,}. "
+            "Changes are in misses relative to S3-FIFO (negative = fewer). 'best per window' is the value with the fewest misses in each "
+            "window; switching to it every window is an upper bound for adapting that knob alone (it ignores the cost of a switch).",
+            "window starts: " + " ".join(str(int(b)) for b in profile["bounds"][:-1]),
+        ]
+        summary = {}
+        for knob, data in profile["knobs"].items():
+            lines.append(
+                f"{knob}: best static value {data['static_best']} ({_pct(data['static_change'])}); "
+                f"best value per window {_pct(data['switching_change'])}"
+            )
+            for label, overall, row in zip(data["values"], data["overall"], data["relative"], strict=True):
+                tag = " (default)" if label == data["default"] else ""
+                lines.append(f"  {label}{tag}: overall {_pct(float(overall))}; per window % " + " ".join(f"{100 * v:+.1f}" for v in row))
+            lines.append("  best per window: " + " ".join(data["best"]))
+            summary[knob] = {"static_best": data["static_best"], "static_change": round(data["static_change"], 5), "switching_change": round(data["switching_change"], 5)}
+        png = None
+        if visual:
+            png = views.render_knobs(
+                profile,
+                title=f"S3-FIFO knobs one at a time on {trace}, C={capacity:,}",
+                subtitle=f"requests {first:,}–{stop:,}" + (f" (variants take over at {switch:,})" if switch else "") + "; change in misses vs the default; ● best value per window",
+            )
+        return View("\n".join(lines), png, {"knobs": summary})
+
+    def headroom(self, trace: str, capacity: int) -> dict[str, Any]:
+        """S3-FIFO replayed with a perfect predictor in charge of one decision at a
+        time (headroom.py), taking over at the lab's handover point. Computed once
+        per cell on the host, kept on disk as packed miss masks."""
+        from . import headroom
+
+        workload = self.trace(trace)
+        n, switch = workload.requests, handover_index(workload.requests, self.handover)
+        path = self.root / "headroom" / f"{workload.sha256[:16]}-{capacity}-{switch}-{self.store.fingerprint[:12]}-v{headroom.VERSION}"
+        names = ["s3fifo", *headroom.DECISIONS, headroom.ALL]
+        slug = {name: name.replace(" ", "_") for name in names}
+        meta_path = path.with_suffix(".json")
+        if meta_path.is_file():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            with np.load(path.with_suffix(".npz")) as data:
+                masks = {name: np.unpackbits(data[slug[name]], count=n).astype(bool) for name in names}
+        else:
+            index = self.index(trace)
+            workers = getattr(self.store.sandbox, "workers", 1) or 1
+            result = headroom.headroom(index.dense, analysis.next_requests(index), capacity, switch, workers=workers)
+            masks = result["masks"]
+            meta = {
+                "crossing": result["crossing"],
+                "s_crossing": result["s_crossing"],
+                "factors": result["factors"],
+                "changes": {decision: {repr(factor): change for factor, change in changes.items()} for decision, changes in result["changes"].items()},
+            }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            partial = path.with_name(path.name + ".partial.npz")
+            np.savez_compressed(partial, **{slug[name]: np.packbits(masks[name]) for name in names})
+            partial.replace(path.with_suffix(".npz"))
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")  # written last: marks the cell complete
+        return {"masks": masks, "switch": switch, **meta}
+
+    HEADROOM_BASELINES = ("3L-Cache", "ARC", "LIRS", "W-TinyLFU", "SIEVE")
+
+    def headroom_baselines(self, trace: str, capacity: int, split: int) -> dict[str, float]:
+        """Real policies (libCacheSim, no future knowledge) on the observed trace only:
+        change in misses after `split` relative to libCacheSim's S3-FIFO in the same
+        run, so both sides share one simulator. Cached per cell."""
+        from . import zoo
+
+        algorithms = ("S3-FIFO", *self.HEADROOM_BASELINES)
+        workers = getattr(self.store.sandbox, "workers", 1) or 1
+        results = zoo.suffix_miss_ratios(self.index(trace).keys, split, [capacity], self.root / "zoo-observed", algorithms=algorithms, workers=min(workers, len(algorithms)))[capacity]
+        base = results.get("S3-FIFO", {})
+        if "error" in base or not base:
+            return {}
+        reference = base["misses"] - base["prefix_misses"]
+        return {
+            name: (result["misses"] - result["prefix_misses"] - reference) / reference
+            for name, result in results.items()
+            if name != "S3-FIFO" and "error" not in result and reference
+        }
+
+    def headroom_view(self, trace: str, capacity: int, start: int | None = None, end: int | None = None, buckets: int | None = None, *, visual: bool = True) -> View:
+        """Which of S3-FIFO's decisions is worth predicting better on one cell; free (no experiment)."""
+        from . import headroom
+
+        capacity = self.capacity(trace, capacity)
+        result = self.headroom(trace, capacity)
+        switch, crossing, factors = result["switch"], result["crossing"], result["factors"]
+        first, stop = self.window(trace, switch if start is None else start, end)
+        opt_miss = ~self.opt(trace, capacity)["hit"]
+        profile = headroom.profile(result["masks"], opt_miss, first, stop, buckets or 16)
+        rows = profile["rows"]
+        # Real policies only count misses after a split, so they need a window that runs to the end.
+        baselines = self.headroom_baselines(trace, capacity, first) if stop == self.trace(trace).requests else {}
+        real = {}
+        if "3L-Cache" in baselines:
+            real["3L-Cache"] = baselines["3L-Cache"]
+        others = {name: change for name, change in baselines.items() if name != "3L-Cache"}
+        if others:
+            name = min(others, key=others.get)
+            real[f"best other ({name})"] = others[name]
+        windows = len(profile["bounds"]) - 1
+        for name, change in real.items():
+            rows[name] = {"misses": None, "relative": np.full(windows, np.nan), "overall": change, "real": True}
+        start_text = f"the predictor takes over S3-FIFO's live cache at request {switch:,}, as experiments do" if switch else "the predictor runs from a cold cache"
+        s_text = "" if result["s_crossing"] is None else f" (crossing S takes {result['s_crossing']:,.0f})"
+        rules = {
+            "promotion": "at the tail of S, move to M exactly the objects requested again within the horizon",
+            "reinsertion": "at the tail of M, reinsert exactly the objects requested again within the horizon",
+            "ghost admission": "a ghost hit enters M if it is requested again within the horizon, else S",
+            headroom.ALL: "all three at once, each at its best horizon",
+            "OPT": "Belady, for scale: from a cold cache, every decision perfect",
+            **{name: "a real policy without future knowledge (libCacheSim, observed part only, vs libCacheSim's S3-FIFO); whole window only" for name in real},
+        }
+        lines = [
+            f"headroom of S3-FIFO's decisions on {trace} C={capacity}: a perfect predictor replaces one decision, everything else "
+            f"stays S3-FIFO; {start_text}; requests [{first}, {stop}), {len(profile['bounds']) - 1} windows; S3-FIFO misses {profile['base_total']:,}.",
+            f"The predictor knows whether an object is requested again within a horizon, a multiple of the {crossing:,.0f} requests "
+            f"({crossing / capacity:.2f} C) an object takes to cross M in S3-FIFO here{s_text}. Each decision keeps the multiple that "
+            "works best for it; all multiples tried are listed (after the handover).",
+            "Changes are in misses relative to S3-FIFO (negative = fewer). A decision with a large change is worth a better "
+            "predictor (a mechanism that guesses that object's future better); one near 0 is not worth an experiment. "
+            "The oracle is a guide, not a bound: a policy can also change the queues themselves. Single decisions overlap, so their "
+            "changes do not add up; 'all three' is the joint figure. The real policies at the end show how much of this headroom "
+            "known algorithms capture on the same requests"
+            + (
+                ". They start from a cold cache at the beginning of the observed part, so a learned policy such as 3L-Cache, "
+                "which needs a long warm-up, looks weaker here than it is over a whole workload."
+                if real
+                else " (shown only for a window that runs to the end of the trace)."
+            ),
+            "window starts: " + " ".join(str(int(b)) for b in profile["bounds"][:-1]),
+        ]
+        for name, row in rows.items():
+            horizon = ""
+            if name in factors:
+                horizon = f", horizon {factors[name]:g}x crossing = {factors[name] * crossing:,.0f} requests; by multiple: " + ", ".join(
+                    f"{float(factor):g}x {_pct(change)}" for factor, change in result["changes"][name].items()
+                )
+            per_window = "" if row.get("real") else "; per window % " + " ".join(f"{100 * v:+.1f}" for v in row["relative"])
+            lines.append(f"{name} ({rules[name]}): overall {_pct(row['overall'])}{horizon}{per_window}")
+        png = None
+        if visual:
+            png = views.render_headroom(
+                profile,
+                title=f"Headroom of S3-FIFO's decisions on {trace}, C={capacity:,}",
+                subtitle=f"requests {first:,}–{stop:,}" + (f" (the predictor takes over at {switch:,})" if switch else "")
+                + "; perfect predictor of 'requested again within the horizon?', best horizon per decision",
+            )
+        summary = {name: round(row["overall"], 5) for name, row in rows.items()}
+        return View("\n".join(lines), png, {"headroom": summary, "factors": factors, "crossing": round(crossing, 1)})
 
     def events(self, identity: str, trace: str, capacity: int, start: int | None, end: int | None, *, key: int | None = None, kinds: list[str] | None = None, limit: int = 100) -> View:
         run = self.experiment(identity).run(trace, self.capacity(trace, capacity))

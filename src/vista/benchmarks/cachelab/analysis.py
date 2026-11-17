@@ -93,10 +93,15 @@ def per_bucket(times: np.ndarray, bounds: np.ndarray, weights: np.ndarray | None
     return counts
 
 
+def bucket_sum(values: np.ndarray, bounds: np.ndarray) -> np.ndarray:
+    """Sum of a per-request array over each [bounds[i], bounds[i+1])."""
+    # reduceat's last group runs to the end of the array, so cut it at the window's end.
+    return np.add.reduceat(values[: bounds[-1]].astype(np.float64), bounds[:-1])
+
+
 def bucket_mean(values: np.ndarray, bounds: np.ndarray) -> np.ndarray:
     """Mean of a per-request array over each [bounds[i], bounds[i+1])."""
-    sums = np.add.reduceat(values.astype(np.float64), bounds[:-1])
-    return sums / np.diff(bounds)
+    return bucket_sum(values, bounds) / np.diff(bounds)
 
 
 def miss_series(run: Run, bounds: np.ndarray) -> np.ndarray:
@@ -334,6 +339,231 @@ def diff_profile(base: Run, cand: Run, index: TraceIndex, start: int, end: int, 
         "top_regressed": leaders(reg_by_key, imp_by_key),
         "top_improved": leaders(imp_by_key, reg_by_key),
     }
+
+
+# -- Belady (OPT) as a reference -------------------------------------------------
+#
+# Demand MIN: every miss is inserted and the resident whose next request is
+# farthest away is evicted. It is the fewest misses any policy here can have
+# (policies must cache every miss), so it splits a policy's misses into the
+# unavoidable and the avoidable (OPT hits the request) ones. LRB (NSDI 2020)
+# calls an eviction "good" when the evicted object is not requested again
+# within the Belady boundary, the reuse distance below which OPT itself almost
+# never evicts.
+
+NEVER = np.iinfo(np.int64).max
+
+
+def next_requests(index: TraceIndex) -> np.ndarray:
+    """For every request, the time of the next request to the same key (NEVER if none)."""
+    composite = index.composite
+    dense, times = composite // (index.n + 1), composite % (index.n + 1)
+    following = np.full(index.n, NEVER, dtype=np.int64)
+    same = dense[1:] == dense[:-1]
+    following[times[:-1][same]] = times[1:][same]
+    return following
+
+
+def belady(index: TraceIndex, capacity: int) -> dict[str, np.ndarray]:
+    """Per-request OPT hits, and OPT's evictions (time and reuse distance of the victim)."""
+    import heapq
+
+    following = next_requests(index).tolist()
+    keys = index.dense.tolist()
+    hit = np.zeros(index.n, dtype=bool)
+    resident: dict[int, int] = {}
+    heap: list[tuple[int, int]] = []
+    evict_t: list[int] = []
+    evict_gap: list[int] = []
+    for t, key in enumerate(keys):
+        if key in resident:
+            hit[t] = True
+        elif len(resident) >= capacity:
+            while True:
+                negative, victim = heapq.heappop(heap)
+                if resident.get(victim) == -negative:
+                    break
+            del resident[victim]
+            evict_t.append(t)
+            evict_gap.append(NEVER if -negative == NEVER else -negative - t)
+        resident[key] = following[t]
+        heapq.heappush(heap, (-following[t], key))
+    return {"hit": hit, "evict_t": np.asarray(evict_t, dtype=np.int64), "evict_gap": np.asarray(evict_gap, dtype=np.int64)}
+
+
+def belady_boundary(opt: dict[str, np.ndarray], quantile: float = 0.05) -> float:
+    """Reuse distance (requests) below which OPT rarely evicts: a low quantile of its victims' distances."""
+    gaps = opt["evict_gap"]
+    if not gaps.size:
+        return float("inf")
+    with np.errstate(invalid="ignore"):
+        value = float(np.quantile(np.where(gaps == NEVER, np.inf, gaps), quantile))
+    # When nearly all of OPT's victims are never reused, the quantile falls between
+    # two infinities and interpolates to NaN; the boundary is then infinite.
+    return float("inf") if np.isnan(value) else value
+
+
+def opt_profile(run: Run, opt: dict[str, np.ndarray], index: TraceIndex, start: int, end: int, buckets: int, boundary: float) -> dict[str, Any]:
+    """A run's misses against OPT per window: unavoidable, avoidable (by the queue the
+    key was evicted from), and lucky hits; plus the share of good evictions per queue."""
+    bounds = edges(start, end, buckets)
+    span = slice(start, end)
+    hit = run.outcome == HIT
+    avoidable = ~hit & opt["hit"]
+    source = remiss_sources(run, index)
+    profile: dict[str, Any] = {
+        "bounds": bounds,
+        "miss_ratio": miss_series(run, bounds),
+        "opt_miss_ratio": bucket_mean(~opt["hit"], bounds),
+        "avoidable": bucket_mean(avoidable, bounds),
+        "lucky": bucket_mean(hit & ~opt["hit"], bounds),
+        "avoidable_by_queue": {},
+        "good_evictions": {},
+    }
+    misses = int((~hit[span]).sum())
+    total_avoidable = int(avoidable[span].sum())
+    totals: dict[str, Any] = {
+        "requests": end - start,
+        "misses": misses,
+        "opt_misses": int((~opt["hit"][span]).sum()),
+        "avoidable": total_avoidable,
+        "avoidable_share_of_misses": total_avoidable / misses if misses else 0.0,
+        "avoidable_by_queue": {},
+    }
+    for position, name in [*enumerate(run.queues), (NO_QUEUE, "other")]:
+        mine = avoidable & (source == position)
+        count = int(mine[span].sum())
+        if count:
+            profile["avoidable_by_queue"][name] = bucket_mean(mine, bounds)
+            totals["avoidable_by_queue"][name] = count
+    inside = (run.evict_t >= start) & (run.evict_t < end)
+    times = run.evict_t[inside].astype(np.int64)
+    following = index.next_after(run.evict_key[inside], times)
+    good = (following < 0) | ((following - times) >= boundary)
+    queue = run.evict_q[inside]
+    totals["evictions"] = {}
+    for position, name in enumerate(run.queues):
+        mine = queue == position
+        if not mine.any():
+            continue
+        counts = per_bucket(times[mine], bounds)
+        goods = per_bucket(times[mine], bounds, good[mine].astype(np.float64))
+        profile["good_evictions"][name] = np.where(counts > 0, goods / np.maximum(counts, 1), np.nan)
+        totals["evictions"][name] = {"count": int(mine.sum()), "good_share": round(float(good[mine].mean()), 4)}
+    profile["totals"] = totals
+    return profile
+
+
+def opt_diff(base: Run, cand: Run, opt: dict[str, np.ndarray], start: int, end: int, buckets: int) -> dict[str, Any]:
+    """Avoidable misses the candidate fixed and created relative to the base, per window."""
+    bounds = edges(start, end, buckets)
+    span = slice(start, end)
+    base_avoidable = (base.outcome != HIT) & opt["hit"]
+    cand_avoidable = (cand.outcome != HIT) & opt["hit"]
+    fixed = base_avoidable & ~cand_avoidable
+    created = cand_avoidable & ~base_avoidable
+    return {
+        "bounds": bounds,
+        "fixed": bucket_mean(fixed, bounds),
+        "created": bucket_mean(created, bounds),
+        "totals": {"fixed": int(fixed[span].sum()), "created": int(created[span].sum()), "base_avoidable": int(base_avoidable[span].sum())},
+    }
+
+
+# -- knob sweeps -------------------------------------------------------------------
+#
+# S3-FIFO's knobs one at a time, the others at their defaults (S3-FIFO Fig. 10/11,
+# AdaptSize Fig. 3): what each value does per window, the best static value,
+# and the best value per window. Switching to the per-window best is an upper
+# bound for adapting that knob alone (it ignores what a switch costs).
+
+
+def knob_profile(default_miss: np.ndarray, variants: dict[str, dict[str, np.ndarray]], defaults: dict[str, str], start: int, end: int, buckets: int) -> dict[str, Any]:
+    """`default_miss` and every variant are per-request miss masks; variants[knob][value]
+    holds every value of a knob except its default (named by defaults[knob])."""
+    bounds = edges(start, end, buckets)
+    base = bucket_sum(default_miss, bounds)
+    base_total = float(base.sum())
+    knobs: dict[str, Any] = {}
+    for knob, masks in variants.items():
+        labels = sorted([*masks, defaults[knob]], key=float)
+        home = labels.index(defaults[knob])
+        counts = np.stack([base if label == defaults[knob] else bucket_sum(masks[label], bounds) for label in labels])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            relative = np.where(base > 0, (counts - base) / np.maximum(base, 1), 0.0)
+        # The default wins ties, so a window where the knob changes nothing names it.
+        best = np.argmin(counts - 0.5 * (np.arange(len(labels)) == home)[:, None], axis=0)
+        overall = (counts.sum(axis=1) - base_total) / base_total if base_total else np.zeros(len(labels))
+        static = int(np.argmin(overall - 1e-12 * (np.arange(len(labels)) == home)))
+        switching = (counts.min(axis=0).sum() - base_total) / base_total if base_total else 0.0
+        knobs[knob] = {
+            "values": labels,
+            "default": defaults[knob],
+            "relative": relative,
+            "overall": overall,
+            "best": [labels[i] for i in best],
+            "best_relative": relative[best, np.arange(best.size)],
+            "static_best": labels[static],
+            "static_change": float(overall[static]),
+            "switching_change": float(switching),
+        }
+    return {"bounds": bounds, "base_misses": base, "base_total": int(base_total), "knobs": knobs}
+
+
+# -- handover ------------------------------------------------------------------------
+#
+# Switching policy on a live cache (the engineer's deployment) has two costs
+# beyond the decision itself: the new policy inherits objects and queue
+# positions it did not choose, and it starts without the history it would have
+# built. Running the same policy from a cold cache separates the decision from
+# the transition (2Q's responsiveness and CacheLib's warm restart plots ask
+# the same question).
+
+def handover_profile(base: Run, warm: Run, cold: Run, switch: int, start: int, end: int, buckets: int) -> dict[str, Any]:
+    bounds = edges(start, end, buckets)
+    after = slice(switch, end)
+    base_miss, warm_miss, cold_miss = (run.outcome != HIT for run in (base, warm, cold))
+    steps = np.arange(switch, end)
+    profile: dict[str, Any] = {
+        "bounds": bounds,
+        "switch": switch,
+        "base": bucket_mean(base_miss, bounds),
+        "warm": bucket_mean(warm_miss, bounds),
+        "cold": bucket_mean(cold_miss, bounds),
+        "steps": steps,
+        "warm_excess": np.cumsum(warm_miss[after].astype(np.int64) - base_miss[after]),
+        "cold_excess": np.cumsum(cold_miss[after].astype(np.int64) - base_miss[after]),
+    }
+    capacity = warm.summary["capacity"]
+    inherited = (warm.evict_t >= switch) & (warm.evict_ins < switch)
+    fresh = (warm.evict_t >= switch) & ~inherited
+    profile["inherited_evictions"] = per_bucket(warm.evict_t[inherited], bounds)
+    profile["fresh_evictions"] = per_bucket(warm.evict_t[fresh], bounds)
+    drained = np.cumsum(profile["inherited_evictions"]) / max(1, capacity)
+    profile["drained"] = drained
+    totals = {
+        "requests_after": end - switch,
+        "base_misses_after": int(base_miss[after].sum()),
+        "warm_misses_after": int(warm_miss[after].sum()),
+        "cold_misses_after": int(cold_miss[after].sum()),
+        "inherited_evictions": int(inherited.sum()),
+        "inherited_evicted_unused": int((inherited & (warm.evict_hits == 0)).sum()),
+    }
+    base_after = max(1, totals["base_misses_after"])
+    totals["decision_effect"] = (totals["cold_misses_after"] - totals["base_misses_after"]) / base_after
+    totals["transition_cost"] = (totals["warm_misses_after"] - totals["cold_misses_after"]) / base_after
+    totals["deployed_effect"] = (totals["warm_misses_after"] - totals["base_misses_after"]) / base_after
+    totals["drained_share_of_cache"] = float(min(1.0, totals["inherited_evictions"] / max(1, capacity)))
+    # When 90% of the transition cost (warm minus cold misses) had been paid.
+    transition = profile["warm_excess"] - profile["cold_excess"]
+    final = float(transition[-1]) if transition.size else 0.0
+    settled = None
+    if final > 0:
+        reached = np.flatnonzero(transition >= 0.9 * final)
+        settled = int(switch + reached[0]) if reached.size else None
+    totals["settled_at"] = settled
+    profile["totals"] = totals
+    return profile
 
 
 # -- workload analyses from the literature ---------------------------------------

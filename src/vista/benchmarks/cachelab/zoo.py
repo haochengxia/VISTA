@@ -1,10 +1,10 @@
 """Published algorithms from libCacheSim, scored on the part of a trace after a split.
 
 The engineer role decides from the first part of a trace and is scored on the
-rest. Every algorithm here runs over the whole trace from a cold cache, like
-the agent's policy, and only misses after the split count. Two deterministic
-runs give that number at C speed: misses over the whole trace minus misses
-over the prefix alone.
+rest. Every algorithm here runs once over the whole trace from a cold cache,
+and only misses after the split count. One pass counts them directly: some
+algorithms (LeCaR, Cacheus, LHD) are randomized, so subtracting a separate
+prefix-only run from a whole-trace run would mix two different random draws.
 
 Results are cached per (trace content, split, capacity, algorithm) as JSON.
 """
@@ -41,7 +41,7 @@ ALGORITHMS: dict[str, Callable[[Any, int], Any]] = {
     "Belady": lambda lcs, c: lcs.Belady(c),
 }
 OFFLINE = frozenset({"Belady"})  # uses future knowledge: a bound, never a competitor
-VERSION = "zoo-v1"
+VERSION = "zoo-v2"  # v2: one pass, misses counted after the split
 
 
 def write_oracle_general(keys: np.ndarray, path: Path) -> None:
@@ -61,21 +61,28 @@ def write_oracle_general(keys: np.ndarray, path: Path) -> None:
     path.write_bytes(records.tobytes())
 
 
-def _misses(algorithm: str, trace_file: str, capacity: int, limit: int) -> int:
+def _misses(algorithm: str, trace_file: str, capacity: int, split: int) -> tuple[int, int, int]:
+    """(misses before the split, misses after it, requests) from one pass over the trace."""
     import libcachesim as lcs
 
-    reader = lcs.TraceReader(trace_file, lcs.TraceType.ORACLE_GENERAL_TRACE)
     cache = ALGORITHMS[algorithm](lcs, capacity)
-    ratio, _ = cache.process_trace(reader, 0, limit)
-    return int(round(ratio * limit))
+    before = after = requests = 0
+    for requests, request in enumerate(lcs.TraceReader(trace_file, lcs.TraceType.ORACLE_GENERAL_TRACE), start=1):
+        if not cache.get(request):
+            if requests <= split:
+                before += 1
+            else:
+                after += 1
+    return before, after, requests
 
 
 def _job(args: tuple[str, str, int, int, int, str]) -> dict[str, Any]:
     algorithm, trace_file, capacity, split, total, out = args
     try:
-        prefix = _misses(algorithm, trace_file, capacity, split)
-        whole = _misses(algorithm, trace_file, capacity, total)
-        result = {"algorithm": algorithm, "capacity": capacity, "prefix_misses": prefix, "misses": whole, "suffix_miss_ratio": (whole - prefix) / (total - split)}
+        prefix, suffix, requests = _misses(algorithm, trace_file, capacity, split)
+        if requests != total:
+            raise RuntimeError(f"read {requests} requests, expected {total}")
+        result = {"algorithm": algorithm, "capacity": capacity, "prefix_misses": prefix, "misses": prefix + suffix, "suffix_miss_ratio": suffix / (total - split)}
     except Exception as exc:  # an algorithm may reject a configuration
         result = {"algorithm": algorithm, "capacity": capacity, "error": f"{type(exc).__name__}: {exc}"}
     Path(out).write_text(json.dumps(result), encoding="utf-8")

@@ -1,0 +1,22 @@
+88 cells, 426 designs, 40 windows (unseen = 8..39)
+  static pick (windows 2-7)                      mean  -2.69%  median  -1.56%  beats 3L 55/88  worse 12
+  hindsight static                               mean  -4.66%  median  -2.62%  beats 3L 63/88  worse 0
+  hindsight per window                           mean  -6.99%  median  -3.41%  beats 3L 67/88  worse 0
+  leader all, cumulative                         mean  -4.03%  median  -1.94%  beats 3L 61/88  worse 2
+      switches: median 3, mean 3.7
+  leader all, last 8 windows                     mean  -4.10%  median  -2.09%  beats 3L 58/88  worse 3
+      switches: median 8, mean 7.8
+  leader all, last 4 windows                     mean  -3.85%  median  -1.96%  beats 3L 57/88  worse 6
+      switches: median 11, mean 11.9
+  leader s3grid, cumulative                      mean  -3.54%  median  -1.39%  beats 3L 50/88  worse 1
+      switches: median 3, mean 3.9
+  leader s3grid, last 8 windows                  mean  -3.63%  median  -1.53%  beats 3L 48/88  worse 1
+      switches: median 6, mean 7.0
+  leader s3grid, last 4 windows                  mean  -3.49%  median  -1.43%  beats 3L 51/88  worse 3
+      switches: median 11, mean 11.4
+  leader s3grid+s4like, cumulative               mean  -3.59%  median  -1.47%  beats 3L 52/88  worse 0
+      switches: median 2, mean 3.5
+  leader s3grid+s4like, last 8 windows           mean  -3.65%  median  -1.77%  beats 3L 50/88  worse 0
+      switches: median 7, mean 7.0
+  leader s3grid+s4like, last 4 windows           mean  -3.52%  median  -1.68%  beats 3L 51/88  worse 3
+      switches: median 11, mean 11.5

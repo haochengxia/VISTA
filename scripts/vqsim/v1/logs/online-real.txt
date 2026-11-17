@@ -1,0 +1,12 @@
+100 cells (windows 8-39 vs S3-FIFO)
+  3L-Cache                     mean  -2.64%  median  -0.02%  beats 3L 0/100  worse 47
+  static pick (cold)           mean  -3.81%  median  -0.90%  beats 3L 60/100  worse 17
+  idealized leader (cold)      mean  -4.59%  median  -1.50%  beats 3L 73/100  worse 6
+  sched-all                    mean  -3.94%  median  -1.08%  beats 3L 62/100  worse 14
+      switches median 2 mean 3.1
+  mini-all r=1% min=1000       mean  -3.97%  median  -1.08%  beats 3L 65/100  worse 14
+      switches median 3 mean 3.3
+  mini-all r=0.1% min=200      mean  -3.84%  median  -0.98%  beats 3L 63/100  worse 15
+      switches median 3 mean 3.5
+  mini-s3s4 r=1% min=1000      mean  -3.88%  median  -1.15%  beats 3L 65/100  worse 11
+      switches median 3 mean 3.2

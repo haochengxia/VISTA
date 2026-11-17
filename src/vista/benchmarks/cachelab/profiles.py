@@ -28,7 +28,7 @@ from vista.core.profiles import (
 
 from .analysis import SELECTIONS
 from .engine import SANDBOX_DIR
-from .lab import MEMORY_LIMIT_RATIO
+from .lab import MEMORY_LIMIT_RATIO, TUNED_REFERENCE
 
 PROTOCOL = "cachelab-s3fifo-improvement-v2"  # v2: workload/position views, references, roles
 
@@ -85,6 +85,40 @@ _SUBMIT_PROPERTIES = {
 }
 
 
+_CASE_ID = {"type": "string", "pattern": "^case-[0-9]{3}$"}
+_RULE_ID = {"type": "string", "pattern": "^P[0-9]{3}$"}
+
+
+def _playbook_ops(limit: int) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "maxItems": limit,
+        "description": (
+            "Changes to the playbook, applied in order; the playbook is never rewritten as a whole. "
+            "add: a new rule (scope + text, optionally the cases that support it). edit: rewrite a rule's "
+            "scope or text (id). support / contradict: cite cases as evidence for or against a rule (id + "
+            "cases). retire: remove a rule that is wrong or subsumed (id + reason)."
+        ),
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["op"],
+            "properties": {
+                "op": {"type": "string", "enum": ["add", "edit", "support", "contradict", "retire"]},
+                "id": _RULE_ID,
+                "scope": {
+                    "type": "string",
+                    "maxLength": 400,
+                    "description": "When the rule applies, in terms an engineer can check on the first part of a new workload (signature values, view patterns).",
+                },
+                "text": {"type": "string", "maxLength": 1500, "description": "What to do and why, with the mechanism and how strong the evidence is."},
+                "cases": {"type": "array", "maxItems": 24, "items": _CASE_ID},
+                "reason": {"type": "string", "maxLength": 800},
+            },
+        },
+    }
+
+
 def experience_specs(*, train: bool, experience: bool) -> tuple[ToolSpec, ...]:
     """Extra tools for experience learning. In training, commit_decision replaces
     submit_policy: it fixes the decision and returns how it did on the rest of
@@ -119,11 +153,15 @@ def experience_specs(*, train: bool, experience: bool) -> tuple[ToolSpec, ...]:
             ToolSpec(
                 "record_experience",
                 (
-                    "Record this case for later engineers and revise the playbook, then end the task. Later "
-                    "sessions read the playbook and the case table first, and the full case on request."
+                    "Record this case for later engineers and update the playbook, then end the task. Later "
+                    "sessions read the playbook and the case table first, and the full case on request. The "
+                    "playbook is a list of rules with ids ([P001] ...): cite the rules your decision relied on, "
+                    "and change the playbook with operations (add, edit, support, contradict, retire), never "
+                    "by rewriting it. The host later counts, for each rule, how often decisions citing it did "
+                    "well or badly on the hidden rest of their workloads."
                 ),
                 _schema(
-                    ["decision", "lesson", "playbook"],
+                    ["decision", "lesson", "cited", "playbook_ops"],
                     {
                         "decision": {"type": "string", "minLength": 1, "maxLength": 300, "description": "One line: what was deployed and with which settings."},
                         "lesson": {
@@ -132,12 +170,8 @@ def experience_specs(*, train: bool, experience: bool) -> tuple[ToolSpec, ...]:
                             "maxLength": 3000,
                             "description": "What the outcome teaches: which prefix signals predicted it, what you would decide now, and for which kinds of workloads.",
                         },
-                        "playbook": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 12000,
-                            "description": "The complete revised playbook (it replaces the current one): conditions -> decisions, with the cases that support each rule and how strong the evidence is.",
-                        },
+                        "cited": {"type": "array", "maxItems": 20, "items": _RULE_ID, "description": "Ids of the playbook rules this decision relied on (empty if none)."},
+                        "playbook_ops": _playbook_ops(12),
                     },
                 ),
                 Capability.SUBMISSION,
@@ -147,6 +181,20 @@ def experience_specs(*, train: bool, experience: bool) -> tuple[ToolSpec, ...]:
     return tuple(specs)
 
 
+TUNE = {
+    "type": "object",
+    "minProperties": 1,
+    "maxProperties": 3,
+    "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]*$"},
+    "additionalProperties": {"type": "array", "minItems": 2, "maxItems": 8, "uniqueItems": True, "items": {"type": ["number", "boolean"]}},
+    "description": (
+        "Optional: class constants of CachePolicy (UPPER_CASE, e.g. SMALL_RATIO) and values to try, at most "
+        "12 combinations. The host simulates every combination and records the best one on the observed part "
+        "after the handover as this experiment; it still costs one experiment, also when refused (more than 12 "
+        "combinations, or a constant your code and S3FIFO never use). Spend experiments on structure and let "
+        "the host pick constants, but the choice is fitted to what you see: check later windows."
+    ),
+}
 HANDOVER_AT = {
     "type": "number",
     "minimum": 0,
@@ -162,10 +210,12 @@ UPDATE_KNOWLEDGE = ToolSpec(
     "update_knowledge",
     (
         "Write the results of the analysis into the library and end the task: a postmortem for each case "
-        "you studied, the revised knowledge, and the complete revised playbook (both replace the current ones)."
+        "you studied, the revised knowledge (it replaces the current text; keep what still holds), and "
+        "operations on the playbook's rules (merge duplicates by retiring one and editing the other, "
+        "correct or retire rules the evidence contradicts, add rules the analysis supports)."
     ),
     _schema(
-        ["postmortems", "knowledge", "playbook"],
+        ["postmortems", "knowledge", "playbook_ops"],
         {
             "postmortems": {
                 "type": "array",
@@ -189,12 +239,7 @@ UPDATE_KNOWLEDGE = ToolSpec(
                 "maxLength": 16000,
                 "description": "Mechanisms and regularities across cases, each with its evidence (cases, experiment ids, numbers) and its strength.",
             },
-            "playbook": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 12000,
-                "description": "The complete revised playbook for engineers who see only the first 20% of a new workload: rules conditioned on what is observable there.",
-            },
+            "playbook_ops": _playbook_ops(64),
         },
     ),
     Capability.SUBMISSION,
@@ -233,7 +278,13 @@ def _lab_specs(visual: bool) -> tuple[ToolSpec, ...]:
                 "running, state the mechanism you are testing and predict both the aggregate change "
                 "and the signature you expect to see in the views. The result gives the per-cell "
                 "table, a check of your aggregate prediction"
-                + (", and the change-over-time overview image." if visual else ", and the change-over-time overview numbers.")
+                + (
+                    ", the change-over-time overview image, and the progress dashboard image (every experiment "
+                    "against S3-FIFO per cell, the best so far, and where this experiment loses most)."
+                    if visual
+                    else ", the change-over-time overview numbers, and the progress table (every experiment against "
+                    "S3-FIFO per cell, the best so far, and where this experiment loses most)."
+                )
             ),
             _schema(
                 ["name", "hypothesis", "prediction", "code"],
@@ -263,20 +314,23 @@ def _lab_specs(visual: bool) -> tuple[ToolSpec, ...]:
                         },
                     ),
                     "code": {"type": "string", "minLength": 1, "maxLength": 65536},
+                    "tune": TUNE,
                 },
             ),
             Capability.ACTION,
             Effect.ENVIRONMENT,
-            max_images=1 if visual else 0,
+            max_images=2 if visual else 0,
             costs={"experiments": 1},
         ),
         ToolSpec(
             "test_policy",
             (
-                "Check a policy module without recording an experiment: static checks, then one "
-                "verified run on a single trace and cache size, reporting errors with a traceback, "
-                "instrumentation problems, and the policy's memory relative to s3fifo. It does not "
-                "report miss ratios (only experiments do) and does not use the experiment budget."
+                "Check a policy module without recording an experiment: static checks, then verified "
+                "runs on one trace at its smallest, a middle and its largest cache size, reporting errors "
+                "with a traceback, instrumentation problems, the policy's memory relative to s3fifo at each "
+                "size (the limit holds at every size), and whether it is the "
+                "same program as an earlier experiment. It does not report miss ratios (only experiments "
+                "do) and does not use the experiment budget."
             ),
             _schema(["code"], {"code": {"type": "string", "minLength": 1, "maxLength": 65536}}),
             Capability.INSPECTION,
@@ -335,6 +389,68 @@ def _lab_specs(visual: bool) -> tuple[ToolSpec, ...]:
             ),
             {**_CELL, "baseline": {"type": "string", "minLength": 1, "maxLength": 32, "description": "Default s3fifo."}, **_WINDOW, **_BUCKETS},
             ["experiment", "trace", "capacity"],
+            visual,
+        ),
+        _view_spec(
+            "view_handover",
+            (
+                "How an experiment's takeover of S3-FIFO's live cache went on one trace and cache size: its "
+                "miss ratio after the handover next to the same policy run from a cold cache and S3-FIFO "
+                "continuing; the deployed change split into the decision (cold vs S3-FIFO) and the transition "
+                "(warm vs cold); when warm and cold converge; and how fast the inherited objects are evicted."
+            ),
+            {**_CELL, **_WINDOW, **_BUCKETS},
+            ["experiment", "trace", "capacity"],
+            visual,
+        ),
+        _view_spec(
+            "view_opt",
+            (
+                "Compare one experiment with Belady's optimal policy (OPT, which knows the future) on one "
+                "trace and cache size: miss ratio per window against OPT; avoidable misses (OPT hits the "
+                "request, the experiment misses it) by the queue the key was last evicted from; and the "
+                "share of good evictions per queue (the evicted object is not requested again within the "
+                "Belady boundary, the reuse distance below which OPT itself rarely evicts). With "
+                "compare_to, also the avoidable misses of that experiment this one fixed and created."
+            ),
+            {**_CELL, **_WINDOW, **_BUCKETS, "compare_to": {"type": "string", "minLength": 1, "maxLength": 32}},
+            ["experiment", "trace", "capacity"],
+            visual,
+        ),
+        _view_spec(
+            "view_knobs",
+            (
+                "What each S3-FIFO knob (SMALL_RATIO, GHOST_RATIO, MOVE_THRESHOLD, MAX_FREQ) is worth on "
+                "its own on one trace and cache size: S3-FIFO with one knob changed at a time, the others "
+                "at their defaults, starting where experiments do. Per window and over the whole range, "
+                "the change in misses of every value; the best static value; and the best value per "
+                "window, whose total bounds what adapting that knob alone could gain. Costs no experiment."
+            ),
+            {
+                "trace": _CELL["trace"],
+                "capacity": _CELL["capacity"],
+                **_WINDOW,
+                "buckets": {"type": "integer", "minimum": 8, "maximum": 64, "description": "Time windows (default 16)."},
+            },
+            ["trace", "capacity"],
+            visual,
+        ),
+        _view_spec(
+            "view_headroom",
+            (
+                "Which of S3-FIFO's three predictions is worth improving on one trace and cache size: "
+                "S3-FIFO replayed with a perfect predictor in charge of one decision (promotion from S "
+                "to M, reinsertion at M's tail, admission of a ghost hit into M), everything else "
+                "unchanged, starting where experiments do. Per window and over the whole range, the "
+                "change in misses of each, of all three together, and of OPT for scale. Costs no experiment."
+            ),
+            {
+                "trace": _CELL["trace"],
+                "capacity": _CELL["capacity"],
+                **_WINDOW,
+                "buckets": {"type": "integer", "minimum": 8, "maximum": 64, "description": "Time windows (default 16)."},
+            },
+            ["trace", "capacity"],
             visual,
         ),
         _view_spec(
@@ -456,9 +572,12 @@ def _engineer_objective(max_experiments: int, split_fraction: float) -> str:
         "A policy must be deterministic, and its metadata must "
         "stay bounded by the cache size: its memory is measured, and more than "
         f"{MEMORY_LIMIT_RATIO:g}x S3-FIFO's at the same cache size invalidates the submission. "
+        "That holds for reference policies too (some use several times S3-FIFO's memory); the "
+        "decision tool checks it and refuses a policy over the limit. "
         "Capacity counts objects.\n\n"
         f"Budget. {_experiments(max_experiments)} (run_experiment). Views, test_policy, queries and "
-        "notes do not use experiments."
+        "notes do not use experiments. With `tune`, one experiment also tries up to 12 combinations of "
+        "your policy's constants and keeps the best, so spend experiments on mechanisms, not on constants."
     )
 
 
@@ -487,10 +606,15 @@ def _analyst_objective(max_experiments: int, split_fraction: float) -> str:
         "risky. Test a candidate rule on all workloads before writing it down, and state how much evidence "
         "supports it.\n\n"
         "Finish with update_knowledge: a postmortem per case you studied; the knowledge (mechanisms and "
-        "regularities, each with its evidence: cases, experiment ids, numbers); and the complete revised "
-        f"playbook. The playbook is for engineers who see only the first {seen} of a new workload: "
-        "condition every rule on what they can observe there (the signature and views of the observed "
-        "part), never on hindsight, and keep it short enough to apply in one look.\n\n"
+        "regularities, each with its evidence: cases, experiment ids, numbers); and operations on the "
+        "playbook. The playbook is a list of rules with stable ids, changed only through operations (add, "
+        "edit, support, contradict, retire), so that nothing true is lost in a rewrite: merge duplicates "
+        "(retire one, edit the other), retire or correct rules the evidence contradicts, cite cases for and "
+        "against rules, and add the rules your analysis supports. Each rule shows how often decisions "
+        "citing it did well or badly on the hidden rest of their workloads (counted by the host). The "
+        f"playbook is for engineers who see only the first {seen} of a new workload: condition every rule "
+        "(its scope) on what they can observe there (the signature and views of the observed part), never "
+        "on hindsight, and keep the active rules few enough to apply in one look.\n\n"
         f"Budget. {_experiments(max_experiments)} (run_experiment). Views, queries and notes do not use experiments."
     )
 
@@ -510,7 +634,8 @@ def system_prompt(*, visual: bool, max_experiments: int, role: str = "designer",
         f"measured, and more than {MEMORY_LIMIT_RATIO:g}x S3-FIFO's at the same cache size "
         "invalidates the submission. Capacity counts objects.\n\n"
         f"Budget. {_experiments(max_experiments)} (run_experiment). Views, test_policy, queries and "
-        "notes do not use experiments."
+        "notes do not use experiments. With `tune`, one experiment also tries up to 12 combinations of "
+        "your policy's constants and keeps the best, so spend experiments on mechanisms, not on constants."
     )
     if role == "engineer":
         objective = _engineer_objective(max_experiments, split_fraction)
@@ -526,6 +651,20 @@ def system_prompt(*, visual: bool, max_experiments: int, role: str = "designer",
             "- Characterize the workload itself (view_workload: reuse distance against the cache sizes, "
             "access frequency, one-hit wonders) and see where a policy's hits land in each queue "
             "(view_positions).\n"
+            "- Measure against the optimum: view_opt separates the misses no policy could avoid from "
+            "the avoidable ones (OPT hits them), says which queue lost those keys, and how many "
+            "evictions were good. Work on the avoidable misses; with compare_to it shows which ones "
+            "a change fixed and which it created.\n"
+            "- When a policy takes over a live cache, view_handover separates what the decision is worth "
+            "(the same policy from a cold cache) from what the transition costs (inherited objects and "
+            "queues), and shows how fast the inherited cache drains.\n"
+            "- Before tuning a constant, view_knobs shows what each S3-FIFO knob is worth alone, per "
+            "window, without using an experiment: the best static value, and how much choosing the best "
+            "value in every window could gain. Spend experiments on what a knob cannot express, or on "
+            "deciding when to change one.\n"
+            "- Before choosing a mechanism, view_headroom shows which of S3-FIFO's decisions (promotion, "
+            "reinsertion, ghost admission) a perfect predictor would improve most on that cell; work "
+            "where the headroom is.\n"
             "- Move between scales on purpose: zoom into a window or object to explain a pattern, "
             "then return to the overview to see whether the explanation covers the rest. A striking "
             "pattern is not necessarily the one that costs the most misses.\n"
@@ -542,6 +681,20 @@ def system_prompt(*, visual: bool, max_experiments: int, role: str = "designer",
             "- Characterize the workload itself (view_workload: reuse distance against the cache sizes, "
             "access frequency, one-hit wonders) and see where a policy's hits land in each queue "
             "(view_positions).\n"
+            "- Measure against the optimum: view_opt separates the misses no policy could avoid from "
+            "the avoidable ones (OPT hits them), says which queue lost those keys, and how many "
+            "evictions were good. Work on the avoidable misses; with compare_to it shows which ones "
+            "a change fixed and which it created.\n"
+            "- When a policy takes over a live cache, view_handover separates what the decision is worth "
+            "(the same policy from a cold cache) from what the transition costs (inherited objects and "
+            "queues), and shows how fast the inherited cache drains.\n"
+            "- Before tuning a constant, view_knobs shows what each S3-FIFO knob is worth alone, per "
+            "window, without using an experiment: the best static value, and how much choosing the best "
+            "value in every window could gain. Spend experiments on what a knob cannot express, or on "
+            "deciding when to change one.\n"
+            "- Before choosing a mechanism, view_headroom shows which of S3-FIFO's decisions (promotion, "
+            "reinsertion, ghost admission) a perfect predictor would improve most on that cell; work "
+            "where the headroom is.\n"
             "- Move between scales on purpose: zoom into a window or object to explain a pattern, "
             "then return to the overview to see whether the explanation covers the rest. A "
             "striking pattern is not necessarily the one that costs the most misses.\n"
@@ -575,7 +728,9 @@ def system_prompt(*, visual: bool, max_experiments: int, role: str = "designer",
             "exactly as you would for a real deployment, then commit_decision instead of submit_policy. "
             "You will see how the decision did on the rest of the workload. Compare it with what the "
             "observed part suggested, find which signals were predictive and which misled you, and "
-            "record_experience: the case, its lesson, and a revised playbook. You have a large budget "
+            "record_experience: the case, its lesson, the playbook rules your decision relied on, and "
+            "operations that update the playbook (add a rule, edit or retire one, cite this case for or "
+            "against one; the playbook is never rewritten as a whole). You have a large budget "
             "here; the engineers who will use the playbook will not. They decide on a new workload from one "
             "look at its first part (the signature and free views) and at most a few experiments, with no "
             "feedback. So the playbook must turn what is observable for free into a decision directly: "
@@ -625,15 +780,25 @@ def initial_prompt(
             baseline_text().rstrip(),
             "```",
             "",
-            "Allowed imports: policy_api, s3fifo, s4fifo, mq, lru, fifo, collections, heapq, bisect, "
+            "Allowed imports: policy_api, s3fifo, s4fifo, mq, lru, fifo, arc, lirs, twoq, wtinylfu, clock, sieve, vq, collections, heapq, bisect, "
             "math, random (seed it), itertools, functools, dataclasses, typing, array, statistics.",
+            "",
+            VQ_NOTE,
             *(
                 [
                     "",
                     "Reference policies, already simulated as experiments with these ids (free to view and "
                     "diff; experiment_info with include_code shows their source): "
                     + ", ".join(f"`{name}`" for name in references)
-                    + ".",
+                    + "."
+                    + (
+                        f" `{TUNED_REFERENCE}` is S3-FIFO with its four knobs chosen separately for each cache size by a "
+                        "search on the observed part; it is one of the policies your decision is compared with. "
+                        "Committing it unchanged is a strong default, so a decision of your own should beat it on "
+                        "the observed part, and you can build on its code."
+                        if TUNED_REFERENCE in references
+                        else ""
+                    ),
                 ]
                 if references
                 else []
@@ -663,8 +828,10 @@ def analyst_prompt(workloads: str, baseline_table: str, *, references: tuple[str
             baseline_text().rstrip(),
             "```",
             "",
-            "Allowed imports: policy_api, s3fifo, s4fifo, mq, lru, fifo, collections, heapq, bisect, "
+            "Allowed imports: policy_api, s3fifo, s4fifo, mq, lru, fifo, arc, lirs, twoq, wtinylfu, clock, sieve, vq, collections, heapq, bisect, "
             "math, random (seed it), itertools, functools, dataclasses, typing, array, statistics.",
+            "",
+            VQ_NOTE,
             "",
             "Recorded experiments (free to view, diff and read): the decisions `dec-NNN`, and the reference "
             "policies " + ", ".join(f"`{name}`" for name in references) + ".",
@@ -672,6 +839,20 @@ def analyst_prompt(workloads: str, baseline_table: str, *, references: tuple[str
             library,
         ]
     )
+
+
+VQ_NOTE = (
+    "Building block `vq` (from vq import VQ, Stage): multi-stage FIFO designs (\"virtual queues\"). "
+    "Hits only raise a small counter in stages that count; at a full cache the first stage at or over "
+    "its size is examined from its tail, and each object there goes up (to any stage, itself = "
+    "reinsertion; counter reset/keep/dec/half), down to another stage, or out (into the ghost if the "
+    "stage feeds it). Per stage: Stage(name, size, counts=True, promote=1, up=None, onup='reset', "
+    "down=None, ghost=False, delay=0.0, age=0.0); delay*C insertions between counted hits (clustered "
+    "hits count once), age*C idle insertions = not promoted. Class knobs: STAGES, ENTRY, OVERFLOW, "
+    "GHOST_ENTRY, GHOST_FREQ, GHOST_RATIO, MAX_FREQ, ADOPT_SMALL, ADOPT_MAIN. VQ's defaults are S3-FIFO "
+    "exactly; S4-FIFO's skip region is a stage with counts=False, promote=0 in front of S; a hot stage "
+    "above main that demotes to main gives a two-level main."
+)
 
 
 def make_profile(

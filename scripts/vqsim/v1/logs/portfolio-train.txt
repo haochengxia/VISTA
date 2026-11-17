@@ -1,0 +1,26 @@
+train-long: 100 cells with all of ['r1']; 423 designs (5-fold CV by trace)
+  3L-Cache       mean  -2.64%  median  -0.02%  beats 3L 0/100  worse 47
+  all designs    mean  -4.59%  median  -1.50%  beats 3L 73/100  worse 6
+  K=2            mean  -0.40%  median  +0.00%  beats 3L 51/100  worse 10
+  K=4            mean  -3.07%  median  -0.34%  beats 3L 63/100  worse 14
+  K=6            mean  -3.65%  median  -0.57%  beats 3L 66/100  worse 15
+  K=8            mean  -3.96%  median  -1.01%  beats 3L 68/100  worse 16
+  K=12           mean  -4.20%  median  -1.21%  beats 3L 68/100  worse 10
+  K=16           mean  -4.38%  median  -1.21%  beats 3L 68/100  worse 9
+  K=24           mean  -4.46%  median  -1.13%  beats 3L 70/100  worse 7
+  K=32           mean  -4.52%  median  -1.25%  beats 3L 71/100  worse 8
+  K=48           mean  -4.57%  median  -1.35%  beats 3L 72/100  worse 6
+  K=64           mean  -4.59%  median  -1.46%  beats 3L 72/100  worse 5
+train-long: 100 cells with all of ['r1']; 423 designs
+  3L-Cache       mean  -2.64%  median  -0.02%  beats 3L 0/100  worse 47
+  all designs    mean  -4.59%  median  -1.50%  beats 3L 73/100  worse 6
+  K=2            mean  -1.68%  median  +0.00%  beats 3L 58/100  worse 11
+  K=4            mean  -3.53%  median  -0.80%  beats 3L 66/100  worse 13
+  K=6            mean  -4.01%  median  -0.98%  beats 3L 68/100  worse 13
+  K=8            mean  -4.23%  median  -1.23%  beats 3L 69/100  worse 13
+  K=12           mean  -4.45%  median  -1.10%  beats 3L 70/100  worse 9
+  K=16           mean  -4.58%  median  -1.34%  beats 3L 70/100  worse 6
+  K=24           mean  -4.72%  median  -1.54%  beats 3L 71/100  worse 5
+  K=32           mean  -4.78%  median  -1.60%  beats 3L 72/100  worse 3
+  K=48           mean  -4.82%  median  -1.60%  beats 3L 72/100  worse 3
+  K=64           mean  -4.82%  median  -1.60%  beats 3L 72/100  worse 3

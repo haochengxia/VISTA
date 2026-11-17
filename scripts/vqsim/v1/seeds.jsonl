@@ -1,0 +1,426 @@
+{"name": "s3fifo", "family": "s3fifo", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.5 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.02 G=0.9 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.5 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.05 G=0.9 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.5 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.1 G=0.9 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.5 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.15 G=0.9 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.15,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.5 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.2 G=0.9 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.5 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=1 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=1 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=1 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=1 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=2 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=2 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=2 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=2 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=3 MF=1", "family": "s3grid", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=3 MF=2", "family": "s3grid", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=3 MF=3", "family": "s3grid", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s3 S=0.3 G=0.9 MT=3 MF=5", "family": "s3grid", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.25 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.0125,0,0,1,1,-1,0 st=0.0375,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.25 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.0125,0,0,1,1,-1,0 st=0.0375,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.25 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.0125,0,0,1,1,-1,0 st=0.0375,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.25 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.0125,0,0,1,1,-1,0 st=0.0375,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.5 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.025,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.5 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.025,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.5 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.025,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.05 skip=0.5 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.025,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.25 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.075,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.25 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.075,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.25 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.075,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.25 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.075,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.5 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.5 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.5 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.05,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.1 skip=0.5 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.05,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.25 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.25 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.25 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.25 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.5 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.1,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.5 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.1,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.5 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.2 skip=0.5 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.25 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.075,0,0,1,1,-1,0 st=0.225,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.25 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.075,0,0,1,1,-1,0 st=0.225,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.25 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.075,0,0,1,1,-1,0 st=0.225,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.25 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.075,0,0,1,1,-1,0 st=0.225,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.5 MT=1 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.5 MT=1 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.5 MT=2 G=0.5", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "s4like S=0.3 skip=0.5 MT=2 G=0.9", "family": "s4like", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq001", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.1,1,3,3,0,-1,0 st=0.01,1,2,2,0,-1,1 st=0.05,1,2,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq002", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq003", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=0 gfreq=0 st=0.3,1,2,1,1,-1,1 st=0,1,1,1,2,-1,1"}
+{"name": "vq004", "family": "vq", "config": "maxf=5 entry=0 overflow=4 ghost=0.9 gentry=4 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,1,2,0,2,0 st=0.1,1,2,4,0,-1,1 st=0.4,1,1,3,0,4,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq005", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=0 gfreq=0 st=0.3,0,0,2,1,-1,0 st=0.2,1,1,1,2,2,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq006", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.1,1,2,3,0,-1,1 st=0.1,1,2,3,0,-1,1 st=0.2,0,0,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq007", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.0 gentry=0 gfreq=0 st=0.3,1,1,1,1,-1,1 st=0,1,1,1,2,-1,1"}
+{"name": "vq008", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=0 st=0.01,0,0,1,1,-1,0 st=0,1,1,1,2,-1,1"}
+{"name": "vq009", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.01,0,0,1,1,-1,0 st=0.2,1,1,2,0,-1,1 st=0,1,1,2,2,-1,1"}
+{"name": "vq010", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=0 gfreq=0 st=0.01,1,3,1,0,-1,1 st=0,1,1,1,0,-1,0"}
+{"name": "vq011", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.05,1,3,1,1,-1,1 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,3,-1,1"}
+{"name": "vq012", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.02,0,0,1,1,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq013", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.1,1,1,2,0,1,0 st=0.2,1,2,2,1,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq014", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=0 st=0.2,1,2,1,0,-1,1 st=0.01,1,1,3,0,-1,1 st=0.02,0,0,3,1,-1,0 st=0,1,1,3,0,-1,1"}
+{"name": "vq015", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.1,0,0,1,1,-1,0 st=0.05,1,1,2,1,2,0 st=0.01,0,0,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq016", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=1 gfreq=1 st=0.3,1,1,3,0,-1,0 st=0.1,1,2,2,0,-1,1 st=0.2,1,1,2,2,3,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq017", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.3,1,2,3,0,-1,1 st=0.15,1,2,3,0,-1,1 st=0,1,1,3,2,-1,1"}
+{"name": "vq018", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.02,1,2,3,1,-1,1 st=0.05,1,2,3,0,-1,1 st=0.01,0,0,3,1,-1,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq019", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=1 st=0.05,1,2,3,1,1,0 st=0.05,1,1,3,0,-1,1 st=0.2,0,0,3,1,-1,0 st=0,1,1,3,2,-1,1"}
+{"name": "vq020", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0.02,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq021", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.9 gentry=1 gfreq=1 st=0.02,1,2,1,0,-1,1 st=0.2,1,2,3,0,2,0 st=0.01,0,0,3,1,-1,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq022", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.1,1,2,1,0,1,0 st=0.2,0,0,2,1,-1,0 st=0,1,1,2,3,-1,0"}
+{"name": "vq023", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,1,3,2,0,-1,1 st=0.05,0,0,2,1,-1,0 st=0,1,1,2,2,-1,1"}
+{"name": "vq024", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.1,1,1,1,1,-1,1 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq025", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.3,1,1,1,1,-1,1 st=0.01,1,1,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq026", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=1 st=0.2,1,1,3,1,-1,0 st=0.3,1,2,3,0,-1,1 st=0.6,1,1,2,3,3,0 st=0,1,2,2,0,-1,0"}
+{"name": "vq027", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.01,1,2,2,0,-1,1 st=0.2,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq028", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=0 gfreq=0 st=0.2,1,2,1,0,-1,0 st=0,1,1,1,3,-1,0"}
+{"name": "vq029", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.0 gentry=1 gfreq=0 st=0.3,1,1,3,0,-1,1 st=0.02,1,2,3,1,-1,1 st=0.1,1,3,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq030", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.3,0,0,2,1,-1,0 st=0.2,1,1,1,3,2,0 st=0,1,2,2,0,-1,0"}
+{"name": "vq031", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.2,1,1,3,0,-1,1 st=0.2,1,1,2,0,3,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq032", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.15,1,2,2,1,-1,1 st=0.02,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq033", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.15,1,3,2,0,-1,0 st=0.4,1,1,1,0,2,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq034", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=1 st=0.2,0,0,1,1,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq035", "family": "vq", "config": "maxf=2 entry=0 overflow=4 ghost=0.5 gentry=3 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0.01,1,2,3,0,-1,0 st=0.02,1,1,3,1,-1,1 st=0.2,1,1,3,0,4,0 st=0,1,2,4,0,-1,0"}
+{"name": "vq036", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=0 gfreq=0 st=0.02,1,1,2,1,-1,1 st=0.05,1,3,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq037", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.9 gentry=0 gfreq=0 st=0.1,1,3,4,1,-1,1 st=0.3,0,0,2,1,-1,0 st=0.02,1,3,4,0,-1,1 st=0.4,1,1,3,0,4,0 st=0,1,1,3,0,-1,1"}
+{"name": "vq038", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.3,0,0,1,1,-1,0 st=0.02,1,2,2,1,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq039", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.05,1,2,3,0,-1,1 st=0.15,0,0,3,1,-1,0 st=0.6,1,1,2,3,3,0 st=0,1,2,3,2,-1,0"}
+{"name": "vq040", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=1 st=0.02,1,1,1,0,-1,0 st=0,1,1,1,2,-1,0"}
+{"name": "vq041", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.2,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq042", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.05,1,2,3,1,-1,1 st=0.6,1,1,2,3,3,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq043", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=1 st=0.1,1,3,1,0,-1,1 st=0.1,1,1,2,0,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq044", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,2,3,0,-1,0 st=0.4,1,1,2,2,3,0 st=0,1,3,3,2,-1,0"}
+{"name": "vq045", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.5 gentry=1 gfreq=0 st=0.01,0,0,1,1,-1,0 st=0.01,0,0,3,1,-1,0 st=0.6,1,1,2,2,3,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq046", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.01,1,2,3,1,-1,1 st=0.15,0,0,3,1,-1,0 st=0.4,1,1,2,2,3,0 st=0,1,1,3,2,-1,1"}
+{"name": "vq047", "family": "vq", "config": "maxf=2 entry=0 overflow=4 ghost=0.9 gentry=4 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.3,1,1,4,0,2,0 st=0.2,0,0,4,1,-1,0 st=0.4,1,1,3,3,4,0 st=0,1,2,3,0,-1,1"}
+{"name": "vq048", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=1 st=0.3,1,3,3,0,-1,1 st=0.1,0,0,2,1,-1,0 st=0.15,1,2,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq049", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,1,2,2,1,-1,1 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq050", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0,1,1,1,3,-1,0"}
+{"name": "vq051", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.5 gentry=2 gfreq=1 st=0.05,1,2,1,0,1,0 st=0.2,0,0,3,1,-1,0 st=0.2,1,1,2,0,3,0 st=0,1,3,2,0,-1,0"}
+{"name": "vq052", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.02,1,3,2,0,-1,1 st=0.2,1,1,1,0,2,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq053", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.05,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq054", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=1 st=0.01,0,0,1,1,-1,0 st=0.05,1,2,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq055", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.0 gentry=0 gfreq=0 st=0.1,1,2,3,0,-1,1 st=0.2,1,1,3,0,-1,1 st=0.4,1,1,2,0,3,0 st=0,1,1,2,0,-1,1"}
+{"name": "vq056", "family": "vq", "config": "maxf=2 entry=0 overflow=4 ghost=0.0 gentry=3 gfreq=1 st=0.02,0,0,1,1,-1,0 st=0.1,1,2,2,0,2,0 st=0.1,1,3,4,1,-1,1 st=0.6,1,1,3,0,4,0 st=0,1,2,4,0,-1,0"}
+{"name": "vq057", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=1 st=0.2,1,2,2,0,-1,1 st=0.15,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq058", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=0 st=0.3,1,3,1,1,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq059", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,2,1,1,-1,1 st=0,1,1,1,3,-1,1"}
+{"name": "vq060", "family": "vq", "config": "maxf=2 entry=0 overflow=4 ghost=0.0 gentry=0 gfreq=1 st=0.15,1,1,1,0,-1,0 st=0.05,1,1,4,1,-1,1 st=0.15,1,2,4,0,-1,1 st=0.6,1,1,3,2,4,0 st=0,1,3,3,2,-1,0"}
+{"name": "vq061", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.02,1,2,2,1,-1,1 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq062", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=0 st=0.01,1,3,3,1,-1,0 st=0.3,1,2,2,0,2,0 st=0.02,0,0,3,1,-1,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq063", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,1,3,2,0,-1,1 st=0.2,1,2,2,1,-1,0 st=0,1,1,2,3,-1,0"}
+{"name": "vq064", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,0,-1,0"}
+{"name": "vq065", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,3,2,1,1,0 st=0.05,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq066", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.02,1,1,1,1,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq067", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=1 st=0.01,0,0,1,1,-1,0 st=0.1,1,3,3,1,-1,1 st=0.6,1,1,2,3,3,0 st=0,1,3,3,0,-1,0"}
+{"name": "vq068", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.01,1,2,2,0,-1,1 st=0.1,0,0,3,1,-1,0 st=0.2,1,1,2,0,3,0 st=0,1,3,2,2,-1,0"}
+{"name": "vq069", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=1 st=0.02,0,0,1,1,-1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq070", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=1 st=0.05,1,1,1,0,-1,1 st=0.3,1,2,2,0,2,0 st=0.15,1,3,3,0,-1,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq071", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=1 st=0.05,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq072", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,1,2,2,1,-1,1 st=0.01,1,3,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq073", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.01,1,2,2,1,-1,1 st=0.05,1,3,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq074", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,1,2,1,0,-1,1 st=0.3,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq075", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.0 gentry=0 gfreq=0 st=0.2,1,2,2,1,1,0 st=0.2,1,3,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq076", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=1 st=0.01,1,2,1,0,1,0 st=0.1,1,1,2,0,-1,1 st=0,1,1,2,2,-1,1"}
+{"name": "vq077", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,1,1,2,0,-1,1 st=0.2,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq078", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.0 gentry=0 gfreq=0 st=0.3,0,0,1,1,-1,0 st=0.01,1,3,2,0,-1,1 st=0,1,1,2,2,-1,1"}
+{"name": "vq079", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.01,1,2,1,1,-1,1 st=0,1,1,1,0,-1,0"}
+{"name": "vq080", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=1 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,2,2,1,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq081", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.0 gentry=3 gfreq=1 st=0.1,1,1,4,0,1,0 st=0.02,1,3,3,0,2,0 st=0.2,1,3,4,0,-1,1 st=0.2,1,1,3,0,4,0 st=0,1,2,3,2,-1,0"}
+{"name": "vq082", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=1 st=0.02,1,2,1,0,-1,1 st=0.02,1,2,3,0,2,0 st=0.05,1,1,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq083", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,0,0,2,1,-1,0 st=0.4,1,1,1,3,2,0 st=0,1,2,2,2,-1,1"}
+{"name": "vq084", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,1,1,1,-1,1 st=0,1,1,1,2,-1,1"}
+{"name": "vq085", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.05,1,2,1,0,-1,1 st=0.15,1,2,2,0,-1,0 st=0,1,1,2,3,-1,0"}
+{"name": "vq086", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.0 gentry=3 gfreq=1 st=0.1,1,3,4,1,-1,1 st=0.15,1,1,2,0,2,0 st=0.05,1,1,3,0,-1,1 st=0.4,1,1,3,2,4,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq087", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.0 gentry=1 gfreq=1 st=0.2,1,2,3,1,1,0 st=0.05,1,1,2,1,-1,1 st=0.2,1,3,3,0,-1,1 st=0,1,1,3,0,-1,0"}
+{"name": "vq088", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=1 st=0.02,1,3,2,1,1,0 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq089", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=1 st=0.02,1,2,1,0,-1,1 st=0.02,1,3,2,0,-1,1 st=0.15,1,2,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq090", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0.1,1,1,2,0,-1,1 st=0.4,1,1,2,2,3,0 st=0,1,1,2,2,-1,1"}
+{"name": "vq091", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.3,0,0,1,1,-1,0 st=0.3,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq092", "family": "vq", "config": "maxf=5 entry=0 overflow=4 ghost=0.5 gentry=1 gfreq=1 st=0.2,1,3,4,1,-1,1 st=0.05,1,1,4,0,-1,1 st=0.2,1,2,4,0,-1,1 st=0.2,1,1,3,0,4,0 st=0,1,2,4,2,-1,0"}
+{"name": "vq093", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=0 st=0.1,1,1,3,0,-1,1 st=0.02,1,3,3,0,2,0 st=0.05,1,2,3,0,-1,1 st=0,1,1,3,2,-1,1"}
+{"name": "vq094", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=1 st=0.01,0,0,1,1,-1,0 st=0,1,1,1,2,-1,1"}
+{"name": "vq095", "family": "vq", "config": "maxf=7 entry=0 overflow=4 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,4,0,-1,1 st=0.02,1,2,4,0,2,0 st=0.02,1,3,4,0,-1,1 st=0.4,1,1,3,2,4,0 st=0,1,3,3,0,-1,0"}
+{"name": "vq096", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=1 gfreq=0 st=0.2,0,0,1,1,-1,0 st=0.05,1,1,2,1,-1,1 st=0,1,1,2,0,-1,1"}
+{"name": "vq097", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.1,1,2,3,0,-1,1 st=0.2,1,1,2,3,3,0 st=0,1,3,3,2,-1,0"}
+{"name": "vq098", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0.02,1,1,2,1,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq099", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,1,3,2,0,-1,1 st=0.1,1,2,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq100", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.15,1,2,3,0,1,0 st=0.02,1,2,3,0,-1,1 st=0.15,1,2,3,0,-1,1 st=0,1,1,3,0,-1,0"}
+{"name": "vq101", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.15,1,3,3,0,1,0 st=0.3,1,3,2,0,-1,1 st=0.2,1,1,2,3,3,0 st=0,1,2,3,0,-1,0"}
+{"name": "vq102", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=0 st=0.15,1,3,1,1,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq103", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.01,1,3,3,0,-1,1 st=0.01,1,1,3,0,2,0 st=0.15,1,2,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq104", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.15,1,1,3,1,1,0 st=0.05,1,3,3,0,-1,1 st=0.2,1,1,2,3,3,0 st=0,1,3,3,0,-1,0"}
+{"name": "vq105", "family": "vq", "config": "maxf=5 entry=0 overflow=1 ghost=0.0 gentry=0 gfreq=0 st=0.05,1,2,1,1,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq106", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=1 st=0.1,1,2,2,0,-1,1 st=0.6,1,1,1,0,2,0 st=0,1,2,2,0,-1,0"}
+{"name": "vq107", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=1 st=0.15,1,2,2,1,1,0 st=0.3,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq108", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.0 gentry=0 gfreq=0 st=0.05,1,2,4,0,-1,0 st=0.2,1,1,4,1,-1,1 st=0.05,1,2,3,0,-1,1 st=0.2,1,1,3,2,4,0 st=0,1,3,3,0,-1,0"}
+{"name": "vq109", "family": "vq", "config": "maxf=7 entry=0 overflow=4 ghost=0.5 gentry=4 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.1,0,0,2,1,-1,0 st=0.05,1,2,3,1,-1,1 st=0.4,1,1,3,2,4,0 st=0,1,3,3,2,-1,1"}
+{"name": "vq110", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,0,-1,0"}
+{"name": "vq111", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.02,1,3,2,0,-1,1 st=0.2,1,2,2,0,-1,0 st=0,1,1,2,3,-1,0"}
+{"name": "vq112", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.0 gentry=0 gfreq=0 st=0.1,1,1,3,0,1,0 st=0.1,0,0,3,1,-1,0 st=0.2,1,1,2,2,3,0 st=0,1,2,3,0,-1,0"}
+{"name": "vq113", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.2,1,2,2,0,1,0 st=0.1,1,2,2,1,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq114", "family": "vq", "config": "maxf=5 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=0 st=0.1,1,2,1,1,-1,1 st=0,1,1,1,0,-1,1"}
+{"name": "vq115", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,3,-1,0"}
+{"name": "vq116", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0.01,1,2,2,1,-1,1 st=0,1,1,2,3,-1,1"}
+{"name": "vq117", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=1 st=0.2,0,0,1,1,-1,0 st=0.05,1,2,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq118", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.2,1,3,1,1,-1,1 st=0.15,1,2,3,0,-1,1 st=0.6,1,1,2,2,3,0 st=0,1,3,2,2,-1,0"}
+{"name": "vq119", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq120", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.2,1,2,2,1,1,0 st=0.05,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq121", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=1 st=0.01,1,1,1,0,-1,1 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,0,-1,1"}
+{"name": "vq122", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.15,1,2,2,1,-1,1 st=0.1,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq123", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 st=0.05,1,2,2,0,-1,1 st=0.02,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq124", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=1 st=0.1,0,0,1,1,-1,0 st=0.3,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq125", "family": "vq", "config": "maxf=2 entry=0 overflow=4 ghost=0.9 gentry=3 gfreq=0 st=0.3,1,1,3,0,-1,0 st=0.01,1,3,4,0,-1,0 st=0.2,1,2,3,1,-1,1 st=0.6,1,1,3,2,4,0 st=0,1,1,3,0,-1,1"}
+{"name": "vq126", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=0 st=0.3,1,3,1,0,-1,1 st=0.15,1,2,3,0,2,0 st=0.01,1,2,3,1,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq127", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.0 gentry=1 gfreq=0 st=0.02,1,2,3,0,-1,1 st=0.3,1,2,3,0,-1,1 st=0.2,1,1,2,3,3,0 st=0,1,2,2,2,-1,0"}
+{"name": "vq128", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=1 gfreq=1 st=0.1,1,1,3,1,-1,1 st=0.15,1,1,3,1,-1,1 st=0.1,1,1,3,1,-1,1 st=0,1,1,3,3,-1,0"}
+{"name": "vq129", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=1 st=0.02,0,0,1,1,-1,0 st=0.3,1,2,3,0,2,0 st=0.15,0,0,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq130", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.01,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq131", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=1 st=0.1,1,2,1,0,1,0 st=0.2,1,3,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq132", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.05,1,3,1,0,1,0 st=0.15,1,3,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq133", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.2,0,0,2,1,-1,0 st=0,1,1,2,3,-1,0"}
+{"name": "vq134", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=1 st=0.15,1,1,1,0,-1,0 st=0.02,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq135", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0.01,1,3,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq136", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=0 st=0.1,1,1,1,1,-1,0 st=0.05,0,0,2,1,-1,0 st=0.02,1,2,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq137", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.15,1,2,1,1,1,0 st=0.3,1,2,2,0,-1,1 st=0.6,1,1,2,2,3,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq138", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=0 gfreq=0 st=0.3,1,2,1,0,-1,1 st=0.6,1,1,1,0,2,0 st=0,1,2,2,2,-1,1"}
+{"name": "vq139", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.2,1,3,2,0,-1,1 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq140", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.1,1,2,2,0,-1,1 st=0.05,0,0,3,1,-1,0 st=0.6,1,1,2,0,3,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq141", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.02,0,0,1,1,-1,0 st=0.2,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq142", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.2,1,1,2,0,1,0 st=0.15,1,3,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq143", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.01,0,0,2,1,-1,0 st=0.02,1,1,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq144", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=1 st=0.15,0,0,1,1,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq145", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,0 st=0,1,1,1,2,-1,0"}
+{"name": "vq146", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.15,1,3,3,1,1,0 st=0.05,1,2,2,0,-1,1 st=0.3,1,1,3,0,-1,1 st=0,1,1,3,0,-1,0"}
+{"name": "vq147", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,2,2,0,1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq148", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.01,1,2,2,0,-1,1 st=0.4,1,1,1,2,2,0 st=0,1,3,1,2,-1,0"}
+{"name": "vq149", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=1 st=0.15,1,2,3,0,1,0 st=0.1,1,1,3,0,-1,1 st=0.02,0,0,3,1,-1,0 st=0,1,1,3,2,-1,0"}
+{"name": "vq150", "family": "vq", "config": "maxf=5 entry=0 overflow=4 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,4,0,1,0 st=0.01,0,0,2,1,-1,0 st=0.2,0,0,4,1,-1,0 st=0.6,1,1,3,0,4,0 st=0,1,1,4,0,-1,0"}
+{"name": "vq151", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.05,1,2,2,1,-1,0 st=0.2,1,1,1,2,2,0 st=0,1,2,1,2,-1,0"}
+{"name": "vq152", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=1 st=0.01,1,2,2,0,-1,0 st=0.15,1,3,3,0,-1,1 st=0.6,1,1,2,3,3,0 st=0,1,3,2,2,-1,0"}
+{"name": "vq153", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=1 st=0.2,1,2,3,1,-1,1 st=0.05,1,2,3,0,-1,1 st=0.6,1,1,2,0,3,0 st=0,1,3,2,0,-1,0"}
+{"name": "vq154", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.1,1,2,1,0,-1,1 st=0.05,1,1,3,0,-1,1 st=0.6,1,1,2,0,3,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq155", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=1 st=0.2,1,3,3,0,-1,1 st=0.3,1,3,3,1,-1,1 st=0.05,1,3,3,0,-1,1 st=0,1,1,3,0,-1,0"}
+{"name": "vq156", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,2,2,0,-1,1 st=0.05,1,3,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq157", "family": "vq", "config": "maxf=1 entry=0 overflow=4 ghost=0.0 gentry=4 gfreq=0 st=0.01,1,2,3,0,-1,0 st=0.01,1,2,3,0,-1,1 st=0.05,0,0,4,1,-1,0 st=0.4,1,1,3,3,4,0 st=0,1,3,3,0,-1,0"}
+{"name": "vq158", "family": "vq", "config": "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq159", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.01,1,2,3,0,-1,1 st=0.15,1,3,2,0,2,0 st=0.1,1,2,3,0,-1,1 st=0,1,1,3,0,-1,0"}
+{"name": "vq160", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.01,1,2,2,1,-1,0 st=0.01,1,2,2,0,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq161", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.2,1,3,3,0,-1,1 st=0.2,1,1,2,0,3,0 st=0,1,2,3,2,-1,0"}
+{"name": "vq162", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=1 gfreq=1 st=0.2,1,1,3,0,-1,1 st=0.05,1,2,3,1,-1,0 st=0.01,0,0,3,1,-1,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq163", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=0 st=0.1,1,2,3,0,1,0 st=0.2,1,2,3,0,-1,1 st=0.3,1,2,3,0,-1,0 st=0,1,1,3,0,-1,1"}
+{"name": "vq164", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=0 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq165", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq166", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.01,1,2,2,1,-1,0 st=0.4,1,1,2,0,3,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq167", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.0 gentry=1 gfreq=0 st=0.01,1,2,1,1,-1,1 st=0.01,0,0,3,1,-1,0 st=0.6,1,1,2,0,3,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq168", "family": "vq", "config": "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=1 st=0.1,0,0,1,1,-1,0 st=0,1,1,1,0,-1,0"}
+{"name": "vq169", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.05,1,3,2,1,-1,1 st=0.2,1,1,1,0,2,0 st=0,1,3,1,2,-1,0"}
+{"name": "vq170", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.01,1,2,1,1,-1,0 st=0.02,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq171", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.05,0,0,2,1,-1,0 st=0.3,1,2,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq172", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.2,1,2,3,0,-1,0 st=0.01,1,1,3,0,-1,1 st=0.4,1,1,2,0,3,0 st=0,1,2,3,0,-1,0"}
+{"name": "vq173", "family": "vq", "config": "maxf=7 entry=0 overflow=1 ghost=0.0 gentry=0 gfreq=0 st=0.2,1,2,1,1,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq174", "family": "vq", "config": "maxf=7 entry=0 overflow=4 ghost=0.9 gentry=1 gfreq=1 st=0.15,0,0,1,1,-1,0 st=0.15,1,1,3,0,2,0 st=0.15,1,3,3,0,-1,1 st=0.2,1,1,3,0,4,0 st=0,1,3,4,0,-1,0"}
+{"name": "vq175", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=1 st=0.05,0,0,1,1,-1,0 st=0.05,1,3,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq176", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.1,1,2,2,0,1,0 st=0.1,1,3,2,1,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq177", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.0 gentry=0 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.05,1,3,3,0,-1,1 st=0.4,1,1,2,2,3,0 st=0,1,2,3,2,-1,0"}
+{"name": "vq178", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=1 st=0.2,1,1,2,0,-1,1 st=0.2,1,1,2,1,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq179", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=1 gfreq=1 st=0.2,1,1,1,0,-1,1 st=0.2,0,0,2,1,-1,0 st=0.1,0,0,3,1,-1,0 st=0,1,1,3,0,-1,0"}
+{"name": "vq180", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.0 gentry=0 gfreq=0 st=0.3,1,2,2,0,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,1"}
+{"name": "vq181", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=0 st=0.15,0,0,1,1,-1,0 st=0.15,1,2,2,0,-1,1 st=0.01,1,3,3,0,-1,0 st=0,1,1,3,3,-1,1"}
+{"name": "vq182", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.05,1,3,2,0,-1,1 st=0.02,1,2,2,0,-1,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq183", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.3,1,2,3,0,-1,1 st=0.02,1,2,3,0,-1,1 st=0.2,1,1,2,2,3,0 st=0,1,3,2,2,-1,0"}
+{"name": "vq184", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.2,1,1,2,0,-1,1 st=0.2,1,1,2,1,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq185", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.5 gentry=1 gfreq=1 st=0.15,1,1,3,0,-1,1 st=0.05,1,2,2,1,-1,1 st=0.2,1,1,2,3,3,0 st=0,1,3,3,2,-1,1"}
+{"name": "vq186", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=1 st=0.1,1,2,2,0,1,0 st=0.02,1,3,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq187", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.2,1,3,3,0,-1,1 st=0.3,1,3,3,0,-1,1 st=0.01,1,2,3,0,-1,1 st=0,1,1,3,3,-1,1"}
+{"name": "vq188", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=1 st=0.2,1,2,3,1,-1,1 st=0.05,1,2,3,0,-1,1 st=0.3,1,3,3,0,-1,0 st=0,1,1,3,3,-1,0"}
+{"name": "vq189", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq190", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.2,1,2,2,1,-1,0 st=0.01,1,2,2,0,-1,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq191", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,0,0,1,1,-1,0 st=0,1,1,1,2,-1,0"}
+{"name": "vq192", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,2,0,1,0 st=0.05,1,2,2,0,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq193", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq194", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=1 st=0.1,1,1,1,0,-1,1 st=0.02,1,1,2,0,-1,1 st=0.01,1,2,3,0,-1,1 st=0,1,1,3,0,-1,1"}
+{"name": "vq195", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.0 gentry=0 gfreq=0 st=0.01,1,1,1,0,-1,0 st=0.02,0,0,2,1,-1,0 st=0.1,1,2,3,0,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq196", "family": "vq", "config": "maxf=7 entry=0 overflow=4 ghost=0.0 gentry=3 gfreq=0 st=0.02,1,2,4,1,-1,1 st=0.05,1,2,4,0,-1,1 st=0.1,1,2,4,1,-1,1 st=0.6,1,1,3,2,4,0 st=0,1,1,4,2,-1,0"}
+{"name": "vq197", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.01,1,3,2,0,-1,1 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq198", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=1 st=0.3,0,0,1,1,-1,0 st=0.3,1,3,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq199", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=0 gfreq=0 st=0.01,0,0,1,1,-1,0 st=0.02,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq200", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.0 gentry=2 gfreq=0 st=0.15,1,2,3,0,-1,1 st=0.05,1,3,2,1,-1,1 st=0.6,1,1,2,2,3,0 st=0,1,2,2,0,-1,0"}
+{"name": "vq201", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=1 st=0.02,1,1,2,1,-1,1 st=0.05,1,3,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq202", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.3,0,0,1,1,-1,0 st=0.2,1,1,2,0,-1,1 st=0.6,1,1,2,3,3,0 st=0,1,3,2,0,-1,0"}
+{"name": "vq203", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.05,1,2,2,0,-1,1 st=0.4,1,1,1,2,2,0 st=0,1,3,1,2,-1,1"}
+{"name": "vq204", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.0 gentry=2 gfreq=0 st=0.15,1,1,2,0,-1,1 st=0.2,1,1,1,2,2,0 st=0,1,2,1,0,-1,0"}
+{"name": "vq205", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.02,0,0,1,1,-1,0 st=0.3,1,3,2,0,-1,0 st=0.1,1,1,3,1,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq206", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.01,1,2,2,0,-1,1 st=0,1,1,2,2,-1,1"}
+{"name": "vq207", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.3,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq208", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=1 st=0.2,1,2,1,1,-1,1 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,3,-1,1"}
+{"name": "vq209", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=0 st=0.02,1,2,3,1,-1,1 st=0.2,1,2,3,0,-1,1 st=0.4,1,1,2,3,3,0 st=0,1,2,2,2,-1,0"}
+{"name": "vq210", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=1 st=0.3,0,0,1,1,-1,0 st=0.02,1,2,3,0,-1,0 st=0.4,1,1,2,2,3,0 st=0,1,3,3,2,-1,0"}
+{"name": "vq211", "family": "vq", "config": "maxf=1 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.01,1,2,2,0,-1,1 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0"}
+{"name": "vq212", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.05,1,2,2,0,1,0 st=0.01,1,1,2,0,-1,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq213", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.1,1,3,2,0,-1,0 st=0.2,1,1,3,1,-1,1 st=0.4,1,1,2,0,3,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq214", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,3,0,1,0 st=0.01,1,2,3,0,-1,1 st=0.4,1,1,2,2,3,0 st=0,1,3,3,2,-1,1"}
+{"name": "vq215", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=1 st=0.1,1,3,1,1,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq216", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=0 st=0.15,1,1,3,0,-1,1 st=0.05,1,2,3,0,-1,1 st=0.2,1,1,2,3,3,0 st=0,1,3,2,0,-1,0"}
+{"name": "vq217", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=0 st=0.2,1,2,1,1,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq218", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.02,1,2,3,1,-1,1 st=0.01,0,0,3,1,-1,0 st=0.2,1,1,2,0,3,0 st=0,1,2,2,2,-1,1"}
+{"name": "vq219", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.01,0,0,2,1,-1,0 st=0,1,1,2,2,-1,1"}
+{"name": "vq220", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.0 gentry=3 gfreq=1 st=0.15,1,2,1,1,-1,0 st=0.3,1,1,3,0,-1,0 st=0.05,0,0,4,1,-1,0 st=0.2,1,1,3,0,4,0 st=0,1,3,3,2,-1,0"}
+{"name": "vq221", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=1 st=0.02,1,2,1,0,-1,1 st=0.02,1,2,2,0,-1,0 st=0,1,1,2,3,-1,0"}
+{"name": "vq222", "family": "vq", "config": "maxf=5 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=1 st=0.01,1,2,1,0,-1,1 st=0.15,1,1,2,1,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq223", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=1 st=0.01,0,0,1,1,-1,0 st=0,1,1,1,0,-1,1"}
+{"name": "vq224", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=2 gfreq=0 st=0.15,1,2,3,0,-1,1 st=0.05,1,1,3,1,-1,1 st=0.6,1,1,2,3,3,0 st=0,1,1,2,0,-1,1"}
+{"name": "vq225", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.15,1,3,2,0,-1,0 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,3,-1,1"}
+{"name": "vq226", "family": "vq", "config": "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=1 st=0.05,1,2,1,1,-1,1 st=0,1,1,1,3,-1,1"}
+{"name": "vq227", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.15,1,3,2,0,-1,1 st=0.05,1,1,2,0,-1,0 st=0,1,1,2,0,-1,0"}
+{"name": "vq228", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.0 gentry=0 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq229", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.01,1,2,2,1,-1,1 st=0.4,1,1,1,3,2,0 st=0,1,2,1,0,-1,0"}
+{"name": "vq230", "family": "vq", "config": "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=0 gfreq=1 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,3,-1,1"}
+{"name": "vq231", "family": "vq", "config": "maxf=5 entry=0 overflow=3 ghost=0.5 gentry=0 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.05,1,2,2,0,-1,1 st=0.02,1,1,3,1,-1,0 st=0,1,1,3,2,-1,1"}
+{"name": "vq232", "family": "vq", "config": "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq233", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.5 gentry=0 gfreq=1 st=0.01,1,2,2,1,-1,0 st=0.6,1,1,1,3,2,0 st=0,1,2,1,0,-1,0"}
+{"name": "vq234", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,1,2,1,1,0 st=0.15,1,1,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq235", "family": "vq", "config": "maxf=7 entry=0 overflow=3 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,2,3,0,-1,1 st=0.05,1,2,3,0,-1,1 st=0.2,1,1,2,2,3,0 st=0,1,3,2,2,-1,0"}
+{"name": "vq236", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=1 st=0.1,1,1,3,0,-1,1 st=0.1,1,2,3,0,-1,0 st=0.6,1,1,2,3,3,0 st=0,1,2,3,0,-1,0"}
+{"name": "vq237", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,2,4,0,-1,1 st=0.1,1,2,2,0,-1,1 st=0.02,1,2,3,0,-1,1 st=0.6,1,1,3,3,4,0 st=0,1,3,3,0,-1,0"}
+{"name": "vq238", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,3,2,0,1,0 st=0.15,1,2,2,1,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq239", "family": "vq", "config": "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=0 gfreq=0 st=0.05,1,2,2,0,-1,1 st=0.1,1,3,2,1,-1,1 st=0,1,1,2,0,-1,0"}
+{"name": "vq240", "family": "vq", "config": "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.3,0,0,3,1,-1,0 st=0.4,1,1,2,2,3,0 st=0,1,3,2,0,-1,1"}
+{"name": "vq241", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.0 gentry=1 gfreq=0 st=0.15,1,3,3,1,1,0 st=0.3,1,2,3,1,-1,0 st=0.2,1,1,2,2,3,0 st=0,1,2,3,2,-1,0"}
+{"name": "vq242", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.01,1,2,1,0,-1,1 st=0.15,1,2,3,1,-1,1 st=0.3,1,3,3,1,-1,1 st=0,1,1,3,2,-1,1"}
+{"name": "vq243", "family": "vq", "config": "maxf=3 entry=0 overflow=4 ghost=0.9 gentry=1 gfreq=1 st=0.01,1,3,1,0,-1,1 st=0.01,0,0,2,1,-1,0 st=0.2,1,2,3,1,-1,0 st=0.2,1,1,3,2,4,0 st=0,1,2,3,0,-1,1"}
+{"name": "vq244", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=1 st=0.01,1,2,1,1,-1,0 st=0.3,0,0,2,1,-1,0 st=0,1,1,2,2,-1,0"}
+{"name": "vq245", "family": "vq", "config": "maxf=5 entry=0 overflow=1 ghost=0.0 gentry=1 gfreq=0 st=0.01,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"}
+{"name": "vq246", "family": "vq", "config": "maxf=2 entry=0 overflow=3 ghost=0.0 gentry=3 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.02,0,0,2,1,-1,0 st=0.02,1,3,3,1,-1,1 st=0,1,1,3,2,-1,0"}
+{"name": "vq247", "family": "vq", "config": "maxf=2 entry=0 overflow=2 ghost=0.5 gentry=1 gfreq=1 st=0.01,1,3,2,0,-1,1 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0"}
+{"name": "vq248", "family": "vq", "config": "maxf=7 entry=0 overflow=4 ghost=0.0 gentry=0 gfreq=0 st=0.02,1,2,4,0,-1,1 st=0.15,1,1,4,0,-1,0 st=0.05,1,1,4,1,-1,1 st=0.4,1,1,3,3,4,0 st=0,1,2,4,2,-1,1"}
+{"name": "vq249", "family": "vq", "config": "maxf=3 entry=0 overflow=2 ghost=0.0 gentry=1 gfreq=0 st=0.2,1,1,2,0,-1,1 st=0.6,1,1,1,0,2,0 st=0,1,3,1,0,-1,0"}
+{"name": "vq250", "family": "vq", "config": "maxf=1 entry=0 overflow=3 ghost=0.5 gentry=3 gfreq=0 st=0.02,0,0,1,1,-1,0 st=0.15,1,2,3,1,-1,1 st=0.4,1,1,2,2,3,0 st=0,1,1,2,2,-1,1"}

@@ -28,3 +28,7 @@ experiments/
 # Benchmark checkouts made by scripts/env_setup/.
 local
 local/
+
+# Real-trace suites and results name source files and datasets: never publish.
+suites/
+results/

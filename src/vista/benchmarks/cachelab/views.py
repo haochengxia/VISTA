@@ -393,6 +393,290 @@ def render_diff(diff: dict[str, Any], *, base_name: str, cand_name: str, title: 
     return _png(figure)
 
 
+def render_dashboard(rows: list[dict[str, Any]], columns: list[str], *, latest: str, best: str | None, title: str, subtitle: str) -> bytes:
+    """Every experiment against S3-FIFO per cell (heatmap) and the search's progress (line)."""
+    count = len(rows)
+    heat_height = min(560, 40 + 22 * count)
+    height = 140 + heat_height + 300
+    figure = _figure(height)
+    _title(figure, title, subtitle)
+    top = 1 - 96 / height
+    heat_bottom = top - heat_height / height
+    axis = figure.add_axes((0.17, heat_bottom, 0.70, top - heat_bottom))
+    matrix = np.array([row["cells"] for row in rows], dtype=float) * 100
+    # The scale follows the agent's own experiments; far-off references saturate.
+    own = matrix[[i for i, row in enumerate(rows) if not row["reference"]]] if any(not row["reference"] for row in rows) else matrix
+    finite = np.abs(own[np.isfinite(own)])
+    bound = max(0.5, float(np.quantile(finite, 0.95))) if finite.size else 1.0
+    image = axis.imshow(matrix, aspect="auto", cmap=DIVERGING, norm=TwoSlopeNorm(vmin=-bound, vcenter=0.0, vmax=bound), interpolation="nearest")
+    axis.set_yticks(range(count))
+    labels = []
+    for row in rows:
+        mark = " ★" if row["id"] == best else (" ◀" if row["id"] == latest else "")
+        labels.append(f"{row['id']}{mark}  {100 * row['mean']:+.2f}%")
+    axis.set_yticklabels(labels, fontsize=8.5, color=SECONDARY)
+    axis.set_xticks(range(len(columns)))
+    axis.set_xticklabels(columns, fontsize=7.5 if len(columns) > 8 else 8.5, color=SECONDARY, rotation=30 if len(columns) > 6 else 0, ha="right" if len(columns) > 6 else "center")
+    axis.tick_params(length=0)
+    for side in axis.spines.values():
+        side.set_visible(False)
+    if len(columns) <= 12 and count <= 24:
+        for i in range(count):
+            for j in range(len(columns)):
+                value = matrix[i, j]
+                if np.isfinite(value):
+                    axis.text(j, i, f"{value:+.1f}", ha="center", va="center", fontsize=7.5, color=INK if abs(value) < 0.6 * bound else SURFACE)
+    references = [i for i, row in enumerate(rows) if row["reference"]]
+    if references and len(references) < count:
+        axis.axhline(max(references) + 0.5, color=INK, linewidth=0.8)
+    axis.set_title("Change vs S3-FIFO per cell, % (rows above the line: references; ★ best so far, ◀ latest)", loc="left", fontsize=10, color=INK, pad=4)
+    bar = figure.add_axes((0.89, heat_bottom, 0.015, top - heat_bottom))
+    figure.colorbar(image, cax=bar).ax.tick_params(labelsize=8, colors=SECONDARY)
+
+    axis = figure.add_axes((0.08, 0.07, 0.78, 230 / height))
+    _style(axis, ylabel="mean change vs S3-FIFO, %")
+    ours = [row for row in rows if not row["reference"]]
+    xs = np.arange(1, len(ours) + 1)
+    means = np.array([100 * row["mean"] for row in ours])
+    if len(ours):
+        axis.plot(xs, means, "o", color=MUTED, markersize=4)
+        axis.step(xs, np.minimum.accumulate(means), where="post", color=BETTER, linewidth=LINE)
+        _label_end(axis, xs[-1], float(np.minimum.accumulate(means)[-1]), "best so far", BETTER)
+        axis.set_xlim(0.5, max(len(ours), 2) + 0.5)
+        axis.set_xticks(xs)
+        axis.set_xticklabels([row["id"] for row in ours], fontsize=8, color=SECONDARY)
+    axis.axhline(0, color=INK, linewidth=0.9)
+    # The axis follows the agent's experiments; references far outside it are listed, not drawn.
+    finite = means[np.isfinite(means)] if len(ours) else np.array([])
+    low, high = (min(0.0, float(finite.min())), max(0.0, float(finite.max()))) if finite.size else (-1.0, 1.0)
+    pad = max(0.25, 0.15 * (high - low))
+    low, high = low - pad, high + pad
+    labels = [(axis.get_xlim()[1], 0.0, "s3fifo", SECONDARY)]
+    outside = []
+    for row in rows:
+        if not row["reference"] or not np.isfinite(row["mean"]):
+            continue
+        value = 100 * row["mean"]
+        if low <= value <= high:
+            axis.axhline(value, color=BASELINE, linewidth=0.8, linestyle=(0, (4, 3)))
+            labels.append((axis.get_xlim()[1], value, row["id"], MUTED))
+        else:
+            outside.append(f"{row['id']} {value:+.1f}%")
+    axis.set_ylim(low, high)
+    _label_ends(axis, labels)
+    if outside:
+        axis.text(0.01, 0.97, "off scale: " + ", ".join(outside), transform=axis.transAxes, fontsize=8, color=MUTED, va="top")
+    axis.set_title("Mean change by experiment (dots) and the best so far (line); dashed: references", loc="left", fontsize=10, color=INK, pad=3)
+    return _png(figure)
+
+
+def render_knobs(profile: dict[str, Any], *, title: str, subtitle: str) -> bytes:
+    """One heatmap per knob: values (rows) x windows (columns) plus the whole range,
+    colored by the change in misses vs S3-FIFO; a dot marks each window's best value."""
+    knobs = profile["knobs"]
+    rows = sum(len(data["values"]) for data in knobs.values())
+    row_px, gap_px = 24, 64
+    height = 100 + rows * row_px + (gap_px - 20) * len(knobs) + 44
+    figure = _figure(height)
+    _title(figure, title, subtitle)
+    matrices = [np.column_stack([data["relative"], data["overall"]]) * 100 for data in knobs.values()]
+    finite = np.abs(np.concatenate([m.ravel() for m in matrices]))
+    finite = finite[np.isfinite(finite)]
+    bound = max(0.5, float(np.quantile(finite, 0.95))) if finite.size else 1.0
+    norm = TwoSlopeNorm(vmin=-bound, vcenter=0.0, vmax=bound)
+    bounds = profile["bounds"]
+    windows = len(bounds) - 1
+    top = 1 - 100 / height
+    image = None
+    for (knob, data), matrix in zip(knobs.items(), matrices, strict=True):
+        count = len(data["values"])
+        panel = count * row_px / height
+        bottom = top - (gap_px - 20) / height - panel
+        axis = figure.add_axes((0.15, bottom, 0.72, panel))
+        image = axis.imshow(matrix, aspect="auto", cmap=DIVERGING, norm=norm, interpolation="nearest")
+        axis.axvline(windows - 0.5, color=SURFACE, linewidth=4)
+        best = [data["values"].index(label) for label in data["best"]]
+        default = data["values"].index(data["default"])
+        axis.plot(np.arange(windows), best, "o", color=INK, markersize=3.5)
+        static = data["values"].index(data["static_best"])
+        axis.plot([windows], [static], "o", color=INK, markersize=3.5)
+        axis.set_yticks(range(count))
+        axis.set_yticklabels([f"{label} (default)" if i == default else label for i, label in enumerate(data["values"])], fontsize=8.5, color=SECONDARY)
+        ticks = sorted({0, windows // 4, windows // 2, (3 * windows) // 4, windows - 1})
+        axis.set_xticks([*ticks, windows])
+        span = int(bounds[-1] - bounds[0])
+        scale, unit = (1000, "k") if span >= 5000 else (1, "")
+        axis.set_xticklabels([f"{bounds[i] / scale:g}{unit}" for i in ticks] + ["all"], fontsize=8, color=SECONDARY)
+        axis.tick_params(length=0)
+        for side in axis.spines.values():
+            side.set_visible(False)
+        axis.set_title(
+            f"{knob}: best static {data['static_best']} {100 * data['static_change']:+.2f}%, best per window {100 * data['switching_change']:+.2f}%",
+            loc="left", fontsize=10, color=INK, pad=4,
+        )
+        top = bottom
+    bar = figure.add_axes((0.89, top, 0.015, 1 - 100 / height - top))
+    figure.colorbar(image, cax=bar).ax.tick_params(labelsize=8, colors=SECONDARY)
+    bar.set_ylabel("change in misses vs s3fifo, %", color=SECONDARY, fontsize=8.5)
+    figure.text(0.15, 12 / height, "columns: window start (requests); the last column is the whole range", fontsize=8, color=MUTED)
+    return _png(figure)
+
+
+def render_headroom(profile: dict[str, Any], *, title: str, subtitle: str) -> bytes:
+    """Each oracle (rows) x windows (columns) plus the whole range, colored by the
+    change in misses vs S3-FIFO; a bar per row gives the whole-range change."""
+    rows = profile["rows"]
+    names = list(rows)
+    row_px = 34
+    height = 96 + len(names) * row_px + 60
+    figure = _figure(height)
+    _title(figure, title, subtitle)
+    matrix = np.array([[*rows[name]["relative"], rows[name]["overall"]] for name in names]) * 100
+    oracle_rows = [i for i, name in enumerate(names) if name != "OPT" and not rows[name].get("real")]
+    finite = np.abs(matrix[oracle_rows].ravel())  # OPT's row would wash out the decisions' colors
+    finite = finite[np.isfinite(finite)]
+    bound = max(0.5, float(np.quantile(finite, 0.95))) if finite.size else 1.0
+    norm = TwoSlopeNorm(vmin=-bound, vcenter=0.0, vmax=bound)
+    bounds = profile["bounds"]
+    windows = len(bounds) - 1
+    panel = len(names) * row_px / height
+    bottom = 60 / height
+    axis = figure.add_axes((0.2, bottom, 0.5, panel))
+    cmap = DIVERGING.with_extremes(bad=SURFACE)  # real policies have no per-window numbers
+    image = axis.imshow(matrix, aspect="auto", cmap=cmap, norm=norm, interpolation="nearest")
+    axis.axvline(windows - 0.5, color=SURFACE, linewidth=4)
+    axis.axhline(names.index("OPT") - 0.5, color=SURFACE, linewidth=4)
+    axis.set_yticks(range(len(names)))
+    axis.set_yticklabels(names, fontsize=9, color=SECONDARY)
+    ticks = sorted({0, windows // 4, windows // 2, (3 * windows) // 4, windows - 1})
+    axis.set_xticks([*ticks, windows])
+    span = int(bounds[-1] - bounds[0])
+    scale, unit = (1000, "k") if span >= 5000 else (1, "")
+    axis.set_xticklabels([f"{bounds[i] / scale:.3g}{unit}" for i in ticks] + ["all"], fontsize=8, color=SECONDARY)
+    axis.tick_params(length=0)
+    for side in axis.spines.values():
+        side.set_visible(False)
+    bar = figure.add_axes((0.73, bottom, 0.012, panel))
+    figure.colorbar(image, cax=bar).ax.tick_params(labelsize=8, colors=SECONDARY)
+    bars = figure.add_axes((0.82, bottom, 0.15, panel))
+    overall = [100 * rows[name]["overall"] for name in names]
+    positions = np.arange(len(names))
+    colors = [EXTRA if rows[name].get("real") else BASELINE if name == "OPT" else BETTER if value < 0 else WORSE for name, value in zip(names, overall, strict=True)]
+    bars.barh(positions, overall, color=colors, height=0.6)
+    bars.set_ylim(len(names) - 0.5, -0.5)
+    low, high = min(0.0, *overall), max(0.0, *overall)
+    pad = 0.35 * (high - low or 1.0)  # room for the value labels
+    bars.set_xlim(low - (pad if low < 0 else 0), high + (pad if high > 0 else 0))
+    bars.set_yticks([])
+    bars.axvline(0, color=MUTED, linewidth=0.8)
+    for y, value in zip(positions, overall, strict=True):
+        bars.annotate(f"{value:+.1f}%", (value, y), xytext=(3 if value >= 0 else -3, 0), textcoords="offset points", ha="left" if value >= 0 else "right", va="center", fontsize=8, color=INK)
+    bars.tick_params(labelsize=8, colors=SECONDARY, length=0)
+    for side in ("top", "right", "left"):
+        bars.spines[side].set_visible(False)
+    bars.set_title("whole range", fontsize=9, color=SECONDARY, loc="left")
+    figure.text(0.2, 14 / height, "change in misses vs s3fifo, %; columns: window start (requests), the last is the whole range; OPT and real policies (purple) for scale", fontsize=8, color=MUTED)
+    return _png(figure)
+
+
+def render_handover(profile: dict[str, Any], *, name: str, title: str, subtitle: str) -> bytes:
+    """Warm takeover vs cold start vs S3-FIFO continuing, and how the inherited cache drains."""
+    height = 860
+    figure = _figure(height)
+    _title(figure, title, subtitle)
+    bounds = profile["bounds"]
+    x = _centers(bounds)
+    start, end = int(bounds[0]), int(bounds[-1])
+    axes = figure.subplots(3, 1, sharex=True, gridspec_kw={"hspace": 0.42, "left": 0.08, "right": 0.86, "top": 0.90, "bottom": 0.08, "height_ratios": (1.2, 1.0, 0.9)})
+
+    axis = axes[0]
+    _style(axis, ylabel="miss ratio")
+    axis.set_title(f"Miss ratio per window: s3fifo continuing, {name} taking over (warm), {name} from a cold cache", loc="left", fontsize=10, color=INK, pad=3)
+    axis.plot(x, profile["base"], color=MUTED, linewidth=LINE)
+    axis.plot(x, profile["cold"], color=EXTRA, linewidth=LINE, linestyle=(0, (5, 2)))
+    axis.plot(x, profile["warm"], color=BETTER, linewidth=LINE)
+    _label_ends(axis, [(x[-1], profile["base"][-1], "s3fifo", SECONDARY), (x[-1], profile["warm"][-1], "warm", BETTER), (x[-1], profile["cold"][-1], "cold", EXTRA)])
+
+    axis = axes[1]
+    _style(axis, ylabel="misses")
+    axis.set_title("Cumulative misses beyond s3fifo since the handover (below 0 = fewer)", loc="left", fontsize=10, color=INK, pad=3)
+    steps = profile["steps"]
+    stride = max(1, steps.size // 2000)
+    axis.plot(steps[::stride], profile["cold_excess"][::stride], color=EXTRA, linewidth=LINE, linestyle=(0, (5, 2)))
+    axis.plot(steps[::stride], profile["warm_excess"][::stride], color=BETTER, linewidth=LINE)
+    axis.axhline(0, color=BASELINE, linewidth=0.8)
+    if steps.size:
+        _label_ends(axis, [(steps[-1], float(profile["warm_excess"][-1]), f"warm {int(profile['warm_excess'][-1]):+,}", BETTER), (steps[-1], float(profile["cold_excess"][-1]), f"cold {int(profile['cold_excess'][-1]):+,}", EXTRA)])
+
+    axis = axes[2]
+    _style(axis, ylabel="per window")
+    axis.set_title("Evictions after the handover: inherited objects (inserted before it) vs the new policy's own", loc="left", fontsize=10, color=INK, pad=3)
+    width = np.diff(bounds) * 0.86
+    axis.bar(x, profile["inherited_evictions"], width=width, color=WORSE, label="inherited")
+    axis.bar(x, profile["fresh_evictions"], width=width, bottom=profile["inherited_evictions"], color=BASELINE, label="own")
+    axis.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, fontsize=8.5, labelcolor=SECONDARY)
+    _requests_axis(axis, start, end)
+    _handover_marks(axes, [profile["switch"]], start, end)
+    return _png(figure)
+
+
+def render_opt(profile: dict[str, Any], *, name: str, colors: dict[str, str], title: str, subtitle: str, diff: dict[str, Any] | None = None, base_name: str = "", marks: list[int] = ()) -> bytes:
+    """A policy against Belady (OPT): which misses were avoidable, and which evictions were good."""
+    rows = 4 if diff is not None else 3
+    height = 1000 if diff is not None else 820
+    figure = _figure(height)
+    _title(figure, title, subtitle)
+    bounds = profile["bounds"]
+    x = _centers(bounds)
+    start, end = int(bounds[0]), int(bounds[-1])
+    ratios = (1.2, 1.0, 0.9, 0.9)[:rows]
+    axes = figure.subplots(rows, 1, sharex=True, gridspec_kw={"hspace": 0.42, "left": 0.08, "right": 0.86, "top": 0.91, "bottom": 0.07, "height_ratios": ratios})
+    width = np.diff(bounds) * 0.86
+
+    axis = axes[0]
+    _style(axis, ylabel="miss ratio")
+    axis.set_title(f"Miss ratio per window: {name} vs OPT (shaded: avoidable misses)", loc="left", fontsize=10, color=INK, pad=3)
+    axis.fill_between(x, profile["opt_miss_ratio"], profile["miss_ratio"], color=WORSE, alpha=0.18, linewidth=0)
+    axis.plot(x, profile["miss_ratio"], color=INK, linewidth=LINE)
+    axis.plot(x, profile["opt_miss_ratio"], color=MUTED, linewidth=LINE, linestyle=(0, (5, 2)))
+    _label_ends(axis, [(x[-1], profile["miss_ratio"][-1], name, INK), (x[-1], profile["opt_miss_ratio"][-1], "OPT", SECONDARY)])
+
+    axis = axes[1]
+    _style(axis, ylabel="per 1k requests")
+    axis.set_title("Avoidable misses (OPT hits) by the queue the key was last evicted from", loc="left", fontsize=10, color=INK, pad=3)
+    bottom = np.zeros(len(x))
+    for queue, series in profile["avoidable_by_queue"].items():
+        values = series * 1000
+        axis.bar(x, values, width=width, bottom=bottom, color=colors.get(queue, OTHER), label=f"evicted from {queue}" if queue != "other" else "other")
+        bottom += values
+    if profile["avoidable_by_queue"]:
+        axis.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, fontsize=8.5, labelcolor=SECONDARY)
+
+    axis = axes[2]
+    _style(axis, ylabel="good share")
+    axis.set_title("Good evictions: share not requested again within the Belady boundary", loc="left", fontsize=10, color=INK, pad=3)
+    axis.set_ylim(0, 1.02)
+    ends = []
+    for queue, series in profile["good_evictions"].items():
+        axis.plot(x, series, color=colors.get(queue, OTHER), linewidth=LINE)
+        finite = np.flatnonzero(np.isfinite(series))
+        if finite.size:
+            ends.append((x[finite[-1]], series[finite[-1]], queue, colors.get(queue, SECONDARY)))
+    _label_ends(axis, ends)
+
+    if diff is not None:
+        axis = axes[3]
+        _style(axis, ylabel="per 1k requests")
+        axis.set_title(f"Avoidable misses of {base_name}: up = fixed by {name}, down = newly created by {name}", loc="left", fontsize=10, color=INK, pad=3)
+        axis.bar(x, diff["fixed"] * 1000, width=width, color=BETTER, label="fixed")
+        axis.bar(x, -diff["created"] * 1000, width=width, color=WORSE, label="created")
+        axis.axhline(0, color=BASELINE, linewidth=0.8)
+        axis.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, fontsize=8.5, labelcolor=SECONDARY)
+    _requests_axis(axes[-1], start, end)
+    _handover_marks(axes, list(marks), start, end)
+    return _png(figure)
+
+
 def render_workload(profile: dict[str, Any], *, title: str, subtitle: str) -> bytes:
     """Trace characterization: reuse distance and frequency (MQ), one-hit wonders (S3-FIFO)."""
     height = 860

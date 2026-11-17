@@ -1,0 +1,12 @@
+heldout-long: 88 cells, windows 8-39 vs S3-FIFO
+  3L-Cache     mean  -2.73%  median  -1.24%  beats 3L 0/88  worse than S3-FIFO 27
+  A online     mean  -3.31%  median  -1.29%  beats 3L 51/88  worse than S3-FIFO 10
+      426 candidates; switches median 3 mean 3.5
+  A static     mean  -2.23%  median  -1.10%  beats 3L 51/88  worse than S3-FIFO 13
+      426 candidates; switches median 0 mean 0.0
+  B online     mean  -3.72%  median  -1.81%  beats 3L 53/88  worse than S3-FIFO 7
+      84 candidates; switches median 2 mean 2.4
+  B static     mean  -2.87%  median  -1.83%  beats 3L 51/88  worse than S3-FIFO 13
+      84 candidates; switches median 0 mean 0.0
+  C online     mean  -3.59%  median  -1.82%  beats 3L 52/88  worse than S3-FIFO 8
+      487 candidates; switches median 2 mean 3.3

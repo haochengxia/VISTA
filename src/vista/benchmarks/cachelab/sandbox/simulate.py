@@ -617,12 +617,15 @@ def main(argv: list[str]) -> int:
     spec = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
     jobs = spec["jobs"]
     workers = max(1, min(int(spec.get("workers", 1)), len(jobs) or 1, os.cpu_count() or 1))
-    if workers == 1:
+    # Fast jobs run the policy in this process; when one batch holds several
+    # policies, each job gets a fresh process so no policy sees another's state.
+    isolate = len({job["policy"] for job in jobs if "policy" in job}) > 1
+    if workers == 1 and not isolate:
         results = [run_job(job) for job in jobs]
     else:
         import multiprocessing
 
-        with multiprocessing.get_context("spawn").Pool(workers) as pool:
+        with multiprocessing.get_context("spawn").Pool(workers, maxtasksperchild=1 if isolate else None) as pool:
             results = pool.map(run_job, jobs, chunksize=1)
     print(json.dumps({"results": results}))
     return 0

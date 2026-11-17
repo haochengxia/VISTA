@@ -1,0 +1,10 @@
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio portfolio-r1bp.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47
+  K=32 rate=0.005 min=200 mean  -4.51%  median  -1.46%  beats 3L 67/100  worse than S3-FIFO 9
+      switches median 1; selector entries / C: median 0.31, max 32.0
+  K=16 rate=0.01 min=200 mean  -4.31%  median  -1.45%  beats 3L 67/100  worse than S3-FIFO 18
+      switches median 1; selector entries / C: median 0.16, max 16.0
+    size <0.5%   ( 22 cells): 3L  -3.72%  K=32:  -3.63%  K=16:  -3.48%
+    size 0.5-2%  ( 31 cells): 3L  -2.90%  K=32:  -4.07%  K=16:  -3.83%
+    size 2-8%    ( 34 cells): 3L  -2.49%  K=32:  -4.92%  K=16:  -4.50%
+    size >=8%    ( 13 cells): 3L  -0.57%  K=32:  -6.00%  K=16:  -6.39%

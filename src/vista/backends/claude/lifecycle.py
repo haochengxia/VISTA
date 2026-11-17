@@ -12,6 +12,15 @@ from vista.core.session import SessionController as GameController
 PROVIDER_5XX_BACKOFF_SECONDS = (10, 30, 60, 120)
 
 
+MAX_PROVIDER_5XX_RESUMES_PER_STEP = 6
+
+
+PROVIDER_ERROR_CONTINUATION_PROMPT = (
+    "The model service failed temporarily and your last reply was lost. "
+    "Nothing else changed. Continue where you left off."
+)
+
+
 MAX_DECISION_LEASE_RECOVERIES_PER_STEP = 5
 
 
@@ -43,6 +52,7 @@ def run_task_with_native_context(
     decision_recovery_step: int | None = None
     decision_recoveries_at_step = 0
     provider_5xx_failures_at_step = 0
+    provider_5xx_resumes_at_step = 0
     compact_step: int | None = None
     compact_cycles_at_step = 0
     nonterminal_continuation_scope: tuple[str, int | None] | None = None
@@ -255,6 +265,32 @@ def run_task_with_native_context(
             decision_recovery_step = controller.step_index
             decision_recoveries_at_step = 0
             provider_5xx_failures_at_step = 0
+            provider_5xx_resumes_at_step = 0
+
+        # The provider failed while the model was generating (Claude Code ran out
+        # of retries). No tool call is outstanding (checked above), so the same
+        # conversation can simply go on after a pause; a fresh session would
+        # lose everything not saved in its notes. If resuming keeps failing,
+        # fall through to a fresh session with a smaller context.
+        if (
+            lease_failure == "runtime_exit"
+            and current.api_error_status is not None
+            and current.api_error_status >= 500
+            and session_id is not None
+            and provider_5xx_resumes_at_step < MAX_PROVIDER_5XX_RESUMES_PER_STEP
+        ):
+            provider_5xx_resumes_at_step += 1
+            sleep(
+                PROVIDER_5XX_BACKOFF_SECONDS[
+                    min(provider_5xx_resumes_at_step - 1, len(PROVIDER_5XX_BACKOFF_SECONDS) - 1)
+                ]
+            )
+            continued = runner.resume_nonterminal_task(session_id, PROVIDER_ERROR_CONTINUATION_PROMPT)
+            results.append(continued)
+            if continued.session_id is not None and continued.session_id != session_id:
+                raise RuntimeError("Provider-error continuation changed Claude session")
+            continue
+
         decision_recoveries_at_step += 1
         if decision_recoveries_at_step > MAX_DECISION_LEASE_RECOVERIES_PER_STEP:
             return results

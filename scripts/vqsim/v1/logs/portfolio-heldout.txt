@@ -1,0 +1,6 @@
+heldout-long: 88 cells, windows 8-39 vs S3-FIFO; portfolio portfolio-r1.prereg-0905.json
+  3L-Cache               mean  -2.73%  median  -1.24%  beats 3L 0/88  worse than S3-FIFO 27
+  K=32 rate=0.005 min=200 mean  -3.18%  median  -1.12%  beats 3L 48/88  worse than S3-FIFO 11
+      switches median 1; selector entries / C: median 0.16, max 32.0
+  K=16 rate=0.01 min=200 mean  -3.07%  median  -0.85%  beats 3L 50/88  worse than S3-FIFO 10
+      switches median 1; selector entries / C: median 0.16, max 16.0

@@ -6,8 +6,11 @@
                revised playbook to the lineage's library. Round 1 starts from empty
                libraries; with --round N >= 2 every lineage starts from a copy of the
                merged (refined) library and takes the next --per-round targets of its
-               share (wrapping around: a second pass re-tunes workloads with what the
-               library has learned since).
+               share that no lineage of this root has trained on. With --allow-repeats
+               it wraps around once those run out (a second pass re-tunes workloads
+               with what the library has learned since); repeats are listed in
+               train/round-N/REPEATS.json, since the library already holds a case
+               for that very workload.
     merge      record each case's origin and hindsight counterfactuals (host only),
                then combine the round's lineage libraries into ROOT/library/merged
                (round 1 creates it; later rounds add their new cases to it). The
@@ -77,6 +80,9 @@ def _targets(root: Path, phase: str, suite: Path, seed: int) -> dict[str, str]:
 MIN_FREE_BYTES = 5 << 30
 
 
+RUN_BACKOFF_SECONDS = (120, 600)  # retries of a run that crashed before submitting
+
+
 def _wait_for_disk(path: Path) -> None:
     """A full disk corrupts runs silently (truncated JSON); wait for space instead."""
     warned = False
@@ -89,32 +95,37 @@ def _wait_for_disk(path: Path) -> None:
 
 def _run(out: Path, lab: Path, target: str, suite: Path, baselines: Path, agent: list[str], *, backend: str, extra: list[str]) -> dict | None:
     """One engineer run; a finished run is reused, a crashed one (no result, or a
-    backend failure before anything was submitted) is moved aside and rerun."""
+    backend failure before anything was submitted) is moved aside and rerun,
+    once more after each backoff in RUN_BACKOFF_SECONDS (gateway outages come
+    in bursts)."""
     result = out / "task" / "result.json"
-    if result.is_file():
-        finished = json.loads(result.read_text(encoding="utf-8"))
-        if not (finished.get("error") and not finished.get("submission")):
-            return finished
-    _wait_for_disk(out.parent if out.parent.exists() else REPO)
-    if out.exists():
-        attempt = 1
-        while out.with_name(f"{out.name}.crashed-{attempt}").exists():
-            attempt += 1
-        out.rename(out.with_name(f"{out.name}.crashed-{attempt}"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        str(VISTA), "--profile", "cachelab", "--backend", backend, "run",
-        "--role", "engineer", "--shots",
-        "--target-suite", str(suite), "--target", target,
-        "--baselines", str(baselines),
-        "--lab-dir", str(lab), "--output", str(out),
-        *extra, *agent,
-    ]  # fmt: skip
-    with open(out.with_suffix(".log"), "w", encoding="utf-8") as log:
-        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, cwd=REPO, check=False)
+    for delay in (0, *RUN_BACKOFF_SECONDS):
+        if result.is_file():
+            finished = json.loads(result.read_text(encoding="utf-8"))
+            if not (finished.get("error") and not finished.get("submission")):
+                return finished
+        time.sleep(delay)
+        _wait_for_disk(out.parent if out.parent.exists() else REPO)
+        if out.exists():
+            crashed = 1
+            while out.with_name(f"{out.name}.crashed-{crashed}").exists():
+                crashed += 1
+            out.rename(out.with_name(f"{out.name}.crashed-{crashed}"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        command = [
+            str(VISTA), "--profile", "cachelab", "--backend", backend, "run",
+            "--role", "engineer", "--shots",
+            "--target-suite", str(suite), "--target", target,
+            "--baselines", str(baselines),
+            "--lab-dir", str(lab), "--output", str(out),
+            *extra, *agent,
+        ]  # fmt: skip
+        with open(out.with_suffix(".log"), "w", encoding="utf-8") as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, cwd=REPO, check=False)
+        if result.is_file():
+            prune_arrays(lab)  # the run is scored; its views are no longer needed
     if not result.is_file():
         return None
-    prune_arrays(lab)  # the run is scored; its views are no longer needed
     return json.loads(result.read_text(encoding="utf-8"))
 
 
@@ -147,8 +158,19 @@ def _backfill(library_dir: Path, runs_dir: Path) -> int:
         library.set_origin(case, {key: task[key] for key in ("target", "split", "split_fraction", "capacities")} | {"run": str(out)})
         if result.get("counterfactuals"):
             library.update_case(case, counterfactuals=compact_counterfactuals(result["counterfactuals"]))
+        library.credit(case)  # count the cited rules' outcome (host-side hindsight)
         done += 1
     return done
+
+
+def _trained(root: Path, round_: int) -> set[str]:
+    """Workloads any lineage of this root trained on before `round_`."""
+    used = set()
+    for earlier in range(1, round_):
+        runs = _round_paths(root, earlier, 1)[1].parent
+        for lineage in runs.glob("lineage-*"):
+            used |= {path.name for path in lineage.iterdir() if path.is_dir() and ".crashed-" not in path.name}
+    return used
 
 
 def cmd_train(args, agent: list[str]) -> None:
@@ -164,13 +186,30 @@ def cmd_train(args, agent: list[str]) -> None:
         per = args.per_round or 1
         if per > min(len(share) for share in shares if share):
             raise SystemExit("--per-round exceeds a lineage's share of targets")
-        lineages = [[share[(i % len(share))] for i in range((args.round - 1) * per, args.round * per)] if share else [] for share in shares]
+        used = _trained(args.root, args.round)
+        lineages, repeats = [], []
+        for k, share in enumerate(shares, start=1):
+            fresh = [neutral for neutral in share if neutral not in used]
+            if len(fresh) < per and not args.allow_repeats:
+                raise SystemExit(
+                    f"lineage {k} has {len(fresh)} workloads left that no earlier round trained on; round {args.round} needs {per}. "
+                    "Pass --allow-repeats for a second pass (the library already holds cases for those workloads)."
+                )
+            again = [neutral for neutral in share if neutral in used]  # in share order: oldest first
+            chosen = (fresh + again)[:per]
+            repeats += [{"lineage": k, "workload": neutral} for neutral in chosen if neutral in used]
+            lineages.append(chosen)
+        if repeats:
+            out = _round_paths(args.root, args.round, 1)[1].parent / "REPEATS.json"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(repeats, indent=1) + "\n", encoding="utf-8")
 
     def lineage(k: int) -> None:
         library, runs, labs = _round_paths(args.root, args.round, k)
         if args.round > 1 and not library.exists():
             shutil.copytree(merged, library, ignore=shutil.ignore_patterns("ORIGINS.json", "MERGED-round-*"))
-            (library / "SINCE.json").write_text(json.dumps({"cases": len(Library(library).cases())}), encoding="utf-8")
+            copy = Library(library)
+            (library / "SINCE.json").write_text(json.dumps({"cases": len(copy.cases()), "ops": len(copy.ops_log())}), encoding="utf-8")
         for neutral in lineages[k - 1]:
             extra = ["--train", "--experience", str(library), *(["--max-experiments", str(args.budget)] if args.budget else [])]
             result = _run(runs / neutral, labs / neutral, targets[neutral], args.suite, args.baselines, agent, backend=args.backend, extra=extra)
@@ -210,8 +249,8 @@ def cmd_merge(args, agent: list[str]) -> None:
     if marker.exists():
         raise SystemExit(f"round {round_} was merged already")
     for k, source in enumerate(lineages, start=1):
-        since = json.loads((source / "SINCE.json").read_text(encoding="utf-8"))["cases"]
-        added = absorb(target, Library(source), label=f"round-{round_}-session-{k}", since=since)
+        since = json.loads((source / "SINCE.json").read_text(encoding="utf-8"))
+        added = absorb(target, Library(source), label=f"round-{round_}-session-{k}", since=since["cases"], since_ops=since.get("ops", 0))
         print(f"round {round_} lineage {k}: added {added}", flush=True)
     marker.write_text("", encoding="utf-8")
 
@@ -250,7 +289,32 @@ def cmd_loop(args, agent: list[str]) -> None:
         cmd_analyze(args, agent)
 
 
+def _assert_disjoint(root: Path, suite: Path, phase: str) -> None:
+    """A test workload must never have been trained on: compare its source file and
+    name with every other phase's suite and with the cases in the libraries."""
+    mine = {spec.name: str(Path(spec.source).resolve()) if spec.source else None for spec in load_suite(suite)}
+    names, sources = set(mine), {source for source in mine.values() if source}
+    mapping = json.loads((root / "targets.json").read_text(encoding="utf-8")) if (root / "targets.json").is_file() else {}
+    clashes = []
+    for other, entry in mapping.items():
+        if other == phase:
+            continue
+        for spec in load_suite(Path(entry["suite"])):
+            source = str(Path(spec.source).resolve()) if spec.source else None
+            if spec.name in names or (source and source in sources):
+                clashes.append(f"{spec.name} ({other})")
+    for origins in (root / "library").glob("**/ORIGINS.json"):
+        for case, origin in json.loads(origins.read_text(encoding="utf-8")).items():
+            target = origin.get("target") or {}  # the training workload's spec
+            source = str(Path(target["source"]).resolve()) if target.get("source") else None
+            if target.get("name") in names or (source and source in sources):
+                clashes.append(f"{target.get('name')} ({origins.parent.name} {case})")
+    if clashes:
+        raise SystemExit(f"{suite} overlaps with training: {', '.join(sorted(set(clashes))[:10])}")
+
+
 def cmd_test(args, agent: list[str]) -> None:
+    _assert_disjoint(args.root, args.suite, "test")
     targets = _targets(args.root, "test", args.suite, args.seed)
     library = args.root / "library" / "merged"
     arms = []
@@ -280,6 +344,56 @@ def _pct(value) -> str:
     return "    n/a" if value is None else f"{100 * value:+7.2f}%"
 
 
+def _against(root: Path, test: dict[str, str], arms: list[str], rival: str) -> list[str]:
+    """Each test arm against one libCacheSim algorithm on the remaining requests.
+
+    The rival runs cold over the whole trace; the arm's decision takes over a live
+    S3-FIFO cache at the split; only misses after the split count. An invalid
+    decision (memory bound, failure) is deployed as S3-FIFO continuing."""
+    stats: dict[str, dict[str, list]] = {}
+
+    def add(label: str, pairs: list[tuple[float, float]], invalid: bool = False) -> None:
+        entry = stats.setdefault(label, {"means": [], "workloads": [], "cells": [], "invalid": []})
+        relative = [(mine - theirs) / theirs for mine, theirs in pairs if theirs]
+        if not relative:
+            return
+        entry["means"].append(sum(relative) / len(relative))
+        entry["workloads"].append(sum(relative) / len(relative) < 0)
+        entry["cells"] += [value < 0 for value in relative]
+        entry["invalid"].append(invalid)
+
+    for neutral in test:
+        reference = None
+        for arm in arms:
+            path = root / "test" / arm / neutral / "task" / "result.json"
+            if not path.is_file():
+                continue
+            result = json.loads(path.read_text(encoding="utf-8"))
+            evaluation = result.get("evaluation") or {}
+            rows = [row for row in evaluation.get("rows", []) if row.get("published", {}).get(rival)]
+            if not rows:
+                continue
+            reference = reference or rows
+            valid = result.get("score") is not None
+            add(arm, [(row["candidate"] if valid else row["s3fifo"], row["published"][rival]) for row in rows], invalid=not valid)
+        if reference:
+            add("s3fifo", [(row["s3fifo"], row["published"][rival]) for row in reference])
+            add("prefix-tuned", [(row["prefix_tuned_s3fifo"], row["published"][rival]) for row in reference if row.get("prefix_tuned_s3fifo") is not None])
+    lines = [
+        f"## Against {rival} (it runs cold over the whole trace; decisions take over S3-FIFO's live cache at the split; "
+        "misses after the split only; negative = fewer misses; an invalid decision counts as S3-FIFO continuing)",
+        f"{'arm':<14}{'mean vs ' + rival:>18}{'workloads better':>18}{'sizes better':>14}{'invalid':>9}",
+    ]
+    for label, entry in stats.items():
+        if not entry["means"]:
+            continue
+        lines.append(
+            f"{label:<14}{_pct(sum(entry['means']) / len(entry['means'])):>18}{sum(entry['workloads']):>10}/{len(entry['workloads']):<7}"
+            f"{sum(entry['cells']):>7}/{len(entry['cells']):<6}{sum(entry['invalid']):>9}"
+        )
+    return lines
+
+
 def cmd_summarize(args, agent: list[str]) -> None:
     mapping = json.loads((args.root / "targets.json").read_text(encoding="utf-8"))
     lines = []
@@ -307,6 +421,7 @@ def cmd_summarize(args, agent: list[str]) -> None:
         lines += ["## Test (mean relative miss-ratio change vs S3-FIFO on the remaining requests; negative is better)"]
         lines.append("run   " + "".join(f"{arm:>14}" for arm in arms) + "   prefix_tuned  best_published  best_name")
         totals: dict[str, list[float]] = {arm: [] for arm in arms}
+        invalid: dict[str, int] = {arm: 0 for arm in arms}
         for neutral, name in test.items():
             cells, reference = [], None
             for arm in arms:
@@ -315,7 +430,14 @@ def cmd_summarize(args, agent: list[str]) -> None:
                 score = result.get("score")
                 if score is not None:
                     totals[arm].append(score)
-                cells.append(f"{_pct(score):>14}")
+                    cells.append(f"{_pct(score):>14}")
+                elif result:
+                    # Finished but invalid (memory bound, failure): deployed as S3-FIFO continuing.
+                    totals[arm].append(0.0)
+                    invalid[arm] += 1
+                    cells.append(f"{'invalid':>14}")
+                else:
+                    cells.append(f"{_pct(None):>14}")
                 reference = reference or result.get("evaluation")
             tuned = best = best_name = None
             if reference and reference.get("rows"):
@@ -325,7 +447,11 @@ def cmd_summarize(args, agent: list[str]) -> None:
                 best = sum(values) / len(values) if values else None
                 best_name = "/".join(dict.fromkeys(str(r.get("best_published")) for r in rows))
             lines.append(f"{neutral}  " + "".join(cells) + f"   {_pct(tuned)}      {_pct(best)}       {best_name or '-'}")
-        lines.append("mean  " + "".join(f"{_pct(sum(v) / len(v) if v else None):>14}" for v in totals.values()) + f"   (n = {', '.join(f'{a}: {len(v)}' for a, v in totals.items())})")
+        lines.append(
+            "mean  " + "".join(f"{_pct(sum(v) / len(v) if v else None):>14}" for v in totals.values())
+            + f"   (n = {', '.join(f'{a}: {len(v)}' for a, v in totals.items())}; invalid runs count as 0: {', '.join(f'{a}: {invalid[a]}' for a in arms)})"
+        )
+        lines += ["", *_against(args.root, test, arms, "3L-Cache")]
     text = "\n".join(lines)
     print(text)
     (args.root / "summary.md").write_text(text + "\n", encoding="utf-8")
@@ -351,6 +477,7 @@ def main() -> None:
     cli.add_argument("--round", type=int, default=0, help="train/merge: the round (train default 1; merge default the latest)")
     cli.add_argument("--rounds", default="2..3", help="loop: FIRST..LAST")
     cli.add_argument("--per-round", type=int, default=1, help="train rounds >= 2: targets per lineage per round")
+    cli.add_argument("--allow-repeats", action="store_true", help="train rounds >= 2: wrap around to workloads already trained on")
     cli.add_argument("--analyst-workers", type=int, default=16)
     cli.add_argument("--backend", default="codex")
     args = cli.parse_args(argv)

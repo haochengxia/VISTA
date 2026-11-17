@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from vista.backends.claude.mcp_host import ClaudeGameMcpHost
 from vista.backends.claude.provider import (
@@ -389,6 +389,8 @@ class ClaudeCodeRunner:
             if mcp_tool_timeout_ms is not None
             else provider.mcp_tool_timeout_ms
         )
+        self.max_retries = provider.max_retries
+        self.mcp_tool_idle_timeout_ms = provider.mcp_tool_idle_timeout_ms
         self.task_timeout = task_timeout
         if decision_lease_timeout < 1:
             raise ValueError("The decision lease timeout must be positive.")
@@ -635,6 +637,7 @@ class ClaudeCodeRunner:
         closed = object()
         final_message = ""
         resolved_models: set[str] = set()
+        served_mismatch: str | None = None
         result_message: dict[str, Any] | None = None
         init_envelope: dict[str, Any] | None = None
         failure: str | None = None
@@ -860,6 +863,18 @@ class ClaudeCodeRunner:
                         model = assistant.get("model")
                         if isinstance(model, str):
                             resolved_models.add(model)
+                            if (
+                                served_mismatch is None
+                                and self.expected_model_id is not None
+                                and foreign_models((model,), self.expected_model_id)
+                            ):
+                                served_mismatch = (
+                                    f"The provider served {model} instead of "
+                                    f"{self.expected_model_id}."
+                                )
+                                failure = served_mismatch
+                                host.disable_calls()
+                                _terminate(process, container_name)
                         for block in assistant.get("content", []):
                             if not isinstance(block, dict):
                                 continue
@@ -981,6 +996,10 @@ class ClaudeCodeRunner:
         if observed_session_id is not None:
             self._session_image_blocks[observed_session_id] = session_image_blocks
         self._session_image_blocks[requested_session_id] = session_image_blocks
+        if served_mismatch is not None:
+            # Not a segment failure to recover from: the conversation already
+            # holds another model's turns, so the whole run is void.
+            raise ServedModelMismatch(f"{served_mismatch} Stdout: {stdout_path}")
         return ClaudeResult(
             segment=segment,
             returncode=returncode,
@@ -1249,6 +1268,13 @@ class ClaudeCodeRunner:
             ]
         if self.mcp_tool_timeout_ms is not None:
             arguments += ["-e", f"MCP_TOOL_TIMEOUT={self.mcp_tool_timeout_ms}"]
+        if self.max_retries is not None:
+            arguments += ["-e", f"CLAUDE_CODE_MAX_RETRIES={self.max_retries}"]
+        if self.mcp_tool_idle_timeout_ms is not None:
+            arguments += [
+                "-e",
+                f"CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT={self.mcp_tool_idle_timeout_ms}",
+            ]
         container = self._container_name(session_id)
         if container is not None:
             arguments += ["--name", container]
@@ -1434,6 +1460,25 @@ def resolved_model_id_from_envelope(envelope: dict[str, Any] | None) -> str:
 
 def resolved_model_id(result: ClaudeResult) -> str:
     return resolved_model_id_from_envelope(result.init_envelope)
+
+
+SYNTHETIC_MODEL = (
+    "<synthetic>"  # Claude Code's own placeholder turns (API errors, interrupts)
+)
+
+
+class ServedModelMismatch(RuntimeError):
+    """The provider answered with a model other than the one requested. Some
+    gateways fall back to another model when the requested one is overloaded,
+    and Claude Code only reports the model it asked for, so a run would
+    silently mix models; it is stopped instead."""
+
+
+def foreign_models(models: Iterable[str], expected: str) -> list[str]:
+    """Models in `models` (as reported by responses) other than `expected`."""
+    return sorted(
+        {model for model in models if model not in (expected, SYNTHETIC_MODEL)}
+    )
 
 
 def sanitize_compact_boundary(value: dict[str, Any]) -> dict[str, Any]:

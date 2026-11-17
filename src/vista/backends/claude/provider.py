@@ -26,6 +26,12 @@ class ClaudeCodeProvider:
     auto_compact_window: int | None = None
     max_output_tokens: int | None = None
     mcp_tool_timeout_ms: int | None = None
+    # Claude Code's retries of one failed API request (CLAUDE_CODE_MAX_RETRIES; its
+    # default is 10). Retrying keeps the conversation; giving up ends the session.
+    max_retries: int | None = None
+    # Claude Code ends a tool call that sends nothing for this long
+    # (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT; its default is 30 minutes for stdio servers).
+    mcp_tool_idle_timeout_ms: int | None = None
 
     def __post_init__(self) -> None:
         if self.endpoint_protocol not in {"anthropic-native", "anthropic-compatible"}:
@@ -76,6 +82,8 @@ PROVIDER_ENV_NAMES = (
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
     "MCP_TOOL_TIMEOUT",
+    "CLAUDE_CODE_MAX_RETRIES",
+    "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT",
     "ENABLE_TOOL_SEARCH",
 )
 

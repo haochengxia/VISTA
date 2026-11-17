@@ -351,6 +351,24 @@ def _dataset_files(root: Path, dataset: str) -> list[Path]:
     return sorted(path for path in (root / dataset).rglob("*") if path.is_file() and "oracleGeneral" in path.name)
 
 
+def count_requests(path: Path, stop_after: int | None = None) -> int:
+    """Requests in an oracleGeneral file (optionally .zst). Counting stops once
+    it passes `stop_after`, so a huge file costs no more than that prefix."""
+    size = ORACLE_GENERAL.itemsize
+    if path.suffix != ".zst":
+        return path.stat().st_size // size
+    import zstandard
+
+    total = 0
+    with path.open("rb") as stream:
+        reader = zstandard.ZstdDecompressor().stream_reader(stream, read_across_frames=True)
+        while chunk := reader.read(64 << 20):
+            total += len(chunk)
+            if stop_after is not None and total // size > stop_after:
+                break
+    return total // size
+
+
 def sample_real_suite(
     root: Path,
     *,
@@ -362,23 +380,38 @@ def sample_real_suite(
     exclude: set[str] = frozenset(),
     max_bytes: int | None = None,
     neutral_names: bool = False,
+    full_length: tuple[int, int] | None = None,
+    name_prefix: str | None = None,
 ) -> tuple[TraceSpec, ...]:
     """Stratified, reproducible sample of oracleGeneral traces: `per_dataset` files
     from each dataset, each cut to its first `requests` requests.
 
+    With `full_length=(low, high)` traces are used whole instead, and only files
+    with low <= requests <= high are chosen (files are tried in a seeded random
+    order; a dataset with fewer such files contributes fewer).
     `exclude` holds source paths already used by another split. Dev names are
     neutral when `neutral_names` is set, so the agent does not see the source.
     """
     import random
 
     specs = []
-    prefix = "dev" if split == "dev" else "ho"
+    prefix = name_prefix or ("dev" if split == "dev" else "ho")
     for dataset in datasets:
         files = [path for path in _dataset_files(root, dataset) if str(path) not in exclude]
         if max_bytes is not None:
             files = [path for path in files if path.stat().st_size <= max_bytes] or files
-        chosen = random.Random(f"{seed}:{split}:{dataset}").sample(files, min(per_dataset, len(files)))
-        for index, path in enumerate(sorted(chosen), start=1):
+        if full_length is None:
+            chosen = [(path, requests) for path in random.Random(f"{seed}:{split}:{dataset}").sample(files, min(per_dataset, len(files)))]
+        else:
+            low, high = full_length
+            chosen = []
+            for path in random.Random(f"{seed}:{split}:{dataset}:full").sample(files, len(files)):
+                if len(chosen) == per_dataset:
+                    break
+                length = count_requests(path, stop_after=high)
+                if low <= length <= high:
+                    chosen.append((path, length))
+        for index, (path, length) in enumerate(sorted(chosen), start=1):
             name = f"{prefix}-r{len(specs) + 1}" if neutral_names else f"{prefix}-{dataset}-{index}"
             specs.append(
                 TraceSpec(
@@ -386,7 +419,7 @@ def sample_real_suite(
                     split,
                     "oracleGeneral",
                     {"dataset": dataset, "file": path.name},
-                    requests,
+                    length,
                     seed=int(hashlib.sha256(str(path).encode()).hexdigest()[:8], 16),
                     source=str(path),
                 )

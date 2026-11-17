@@ -25,7 +25,6 @@ from the full trace would reveal how many new objects arrive later).
 from __future__ import annotations
 
 import dataclasses
-import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,7 +50,7 @@ NAME = "target"
 # a handover is hardest.
 ENGINEER_CAPACITY_FRACTIONS = (0.01, 0.03, 0.1, 0.3)
 PREFIX_HANDOVER = 0.2  # experiments on the prefix: S3-FIFO serves its first 20%
-PROTOCOL = "engineer-handover-v1"
+PROTOCOL = "engineer-handover-v2"  # v2: prefix tuning by coordinate descent (v1: full grid)
 
 
 @dataclass(frozen=True)
@@ -119,29 +118,78 @@ def suffix_miss_ratio(run: Run, split: int) -> float:
     return float((run.outcome[split:] != HIT).mean())
 
 
-def prefix_tuned(lab: Lab, task: EngineerTask, *, grid: dict[str, Sequence[Any]] = GRID) -> dict[int, dict[str, Any]]:
-    """S3-FIFO with the grid configuration that does best on the prefix (with the
-    lab's handover, like the agent's experiments), chosen per cache size, then
-    switched on at the split of the live S3-FIFO cache. Run after the agent's
-    session: these experiments are recorded in the lab."""
+_KNOBS = ("SMALL_RATIO", "GHOST_RATIO", "MOVE_THRESHOLD", "MAX_FREQ")
+
+
+def tuned_configs(baselines: dict[str, Any] | None, capacities: Sequence[int]) -> dict[int, dict[str, Any]] | None:
+    """The prefix-tuned knobs per cache size from a baselines report: chosen on the
+    observed part only, so the agent may see them (the report's scores on the rest
+    of the workload must stay hidden). None unless every size has a configuration."""
+    if not baselines:
+        return None
+    configs = {row["capacity"]: row.get("prefix_tuned_config") for row in baselines.get("rows", [])}
+    if not all(configs.get(capacity) and set(configs[capacity]) == set(_KNOBS) for capacity in capacities):
+        return None
+    return {capacity: configs[capacity] for capacity in capacities}
+
+
+def tuned_reference_source(configs: dict[int, dict[str, Any]]) -> str:
+    """S3-FIFO with the prefix-tuned knobs of each cache size, as ordinary policy code."""
+    rows = "\n".join(f"    {capacity}: ({', '.join(repr(config[name]) for name in _KNOBS)})," for capacity, config in sorted(configs.items()))
+    return (
+        "from s3fifo import S3FIFO\n\n"
+        "# S3-FIFO's knobs chosen separately for each cache size by a search on the observed part\n"
+        "# (coordinate descent from the defaults; each candidate took over at the handover point).\n"
+        f"# capacity: ({', '.join(_KNOBS)})\n"
+        f"KNOBS = {{\n{rows}\n}}\n\n\n"
+        "class CachePolicy(S3FIFO):\n"
+        "    def __init__(self, capacity, ctx):\n"
+        "        knobs = KNOBS.get(capacity)\n"
+        "        if knobs is not None:\n"
+        f"            self.{', self.'.join(_KNOBS)} = knobs\n"
+        "        super().__init__(capacity, ctx)\n"
+    )
+
+
+def prefix_tuned(lab: Lab, task: EngineerTask, *, grid: dict[str, Sequence[Any]] = GRID, passes: int = 2) -> dict[int, dict[str, Any]]:
+    """S3-FIFO tuned on the prefix (with the lab's handover, like the agent's
+    experiments), per cache size, then switched on at the split of the live
+    S3-FIFO cache. Coordinate descent from the defaults: each pass tries every
+    value of one knob at a time (all sizes in one batch) and keeps the best,
+    about 26 configurations per size instead of the grid's 288, so whole traces
+    of tens of millions of requests stay affordable. Run after the agent's
+    session."""
     base = lab.experiment("s3fifo")
-    best: dict[int, tuple[float, dict[str, Any]]] = {c: (0.0, dict(DEFAULT)) for c in task.capacities}
-    for values in itertools.product(*grid.values()):
-        config = dict(zip(grid, values, strict=True))
-        if config == DEFAULT:
-            continue
-        experiment, _ = lab.dev_experiment("prefix grid", policy_source(config), prune=True)
-        if not experiment.ok:
-            continue
-        for capacity in task.capacities:
-            mine = experiment.run(NAME, capacity).summary["miss_ratio"]
-            theirs = base.run(NAME, capacity).summary["miss_ratio"]
-            change = (mine - theirs) / theirs if theirs else 0.0
-            if change < best[capacity][0]:
-                best[capacity] = (change, config)
+    reference = {c: base.run(NAME, c).summary["miss_ratio"] for c in task.capacities}
+    current = {c: (0.0, dict(DEFAULT)) for c in task.capacities}
+    seen: set[tuple[int, tuple[tuple[str, Any], ...]]] = set()
+    for _ in range(passes):
+        moved = False
+        for knob, values in grid.items():
+            entries, owners = [], []
+            for capacity in task.capacities:
+                for value in values:
+                    config = {**current[capacity][1], knob: value}
+                    key = (capacity, tuple(sorted(config.items())))
+                    if config == current[capacity][1] or key in seen:
+                        continue
+                    seen.add(key)
+                    entries.append((policy_source(config), task.prefix, capacity))
+                    owners.append((capacity, config))
+            for (capacity, config), run in zip(owners, lab.store.simulate_many(entries, handover=lab.handover), strict=True):
+                if not isinstance(run, Run):
+                    continue
+                theirs = reference[capacity]
+                change = (run.summary["miss_ratio"] - theirs) / theirs if theirs else 0.0
+                run.drop_arrays()  # only the summary is needed
+                if change < current[capacity][0]:
+                    current[capacity] = (change, config)
+                    moved = True
+        if not moved:
+            break
+    finals = lab.store.simulate_many([(policy_source(config), task.full, capacity) for capacity, (_, config) in current.items()], handover=task.fraction)
     chosen = {}
-    for capacity, (change, config) in best.items():
-        run = lab.store.simulate(policy_source(config), [(task.full, capacity)], handover=task.fraction)[(NAME, capacity)]
+    for (capacity, (change, config)), run in zip(current.items(), finals, strict=True):
         chosen[capacity] = {
             "config": config,
             "prefix_relative_change": change,
