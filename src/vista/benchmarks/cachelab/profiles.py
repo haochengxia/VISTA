@@ -454,6 +454,19 @@ def _lab_specs(visual: bool) -> tuple[ToolSpec, ...]:
             visual,
         ),
         _view_spec(
+            "view_mrc",
+            (
+                "How much cache a policy is worth on one trace and cache size: miss-ratio curves of "
+                "S3-FIFO, LRU and OPT (Belady) at 1/8 to 8 times the cache size, on the requests "
+                "experiments change. With experiment, also the size at which S3-FIFO would miss as "
+                "often as that experiment does at this size (its equivalent cache size); OPT's "
+                "equivalent size bounds what any policy could be worth there. Costs no experiment."
+            ),
+            {"trace": _CELL["trace"], "capacity": _CELL["capacity"], "experiment": _CELL["experiment"]},
+            ["trace", "capacity"],
+            visual,
+        ),
+        _view_spec(
             "view_workload",
             (
                 "Characterize one trace independently of any policy, with the analyses behind MQ and "
@@ -665,6 +678,9 @@ def system_prompt(*, visual: bool, max_experiments: int, role: str = "designer",
             "- Before choosing a mechanism, view_headroom shows which of S3-FIFO's decisions (promotion, "
             "reinsertion, ghost admission) a perfect predictor would improve most on that cell; work "
             "where the headroom is.\n"
+            "- view_mrc prices a cell in cache size: how steep S3-FIFO's miss-ratio curve is around C, "
+            "how much cache OPT is worth there, and how much an experiment is worth (the size at which "
+            "S3-FIFO would match it). A flat curve leaves little to gain.\n"
             "- Move between scales on purpose: zoom into a window or object to explain a pattern, "
             "then return to the overview to see whether the explanation covers the rest. A striking "
             "pattern is not necessarily the one that costs the most misses.\n"
@@ -695,6 +711,9 @@ def system_prompt(*, visual: bool, max_experiments: int, role: str = "designer",
             "- Before choosing a mechanism, view_headroom shows which of S3-FIFO's decisions (promotion, "
             "reinsertion, ghost admission) a perfect predictor would improve most on that cell; work "
             "where the headroom is.\n"
+            "- view_mrc prices a cell in cache size: how steep S3-FIFO's miss-ratio curve is around C, "
+            "how much cache OPT is worth there, and how much an experiment is worth (the size at which "
+            "S3-FIFO would match it). A flat curve leaves little to gain.\n"
             "- Move between scales on purpose: zoom into a window or object to explain a pattern, "
             "then return to the overview to see whether the explanation covers the rest. A "
             "striking pattern is not necessarily the one that costs the most misses.\n"

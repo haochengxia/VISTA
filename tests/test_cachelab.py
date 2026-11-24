@@ -8,6 +8,7 @@ evidence archiving, inspect/read_pixels/history, submission) without a model.
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import sys
 from pathlib import Path
@@ -249,6 +250,62 @@ def test_vq_v1_is_the_frozen_portfolio_and_runs() -> None:
         resident.add(key)
         assert len(resident) == sum(policy.sizes()[name] for name in policy.QUEUES)
     assert policy.current >= 0 and policy.rate == pytest.approx(0.2)
+
+
+def test_vqonline_c_matches_online_v1(tmp_path) -> None:
+    """scripts/vqsim/vqonline.h (keyed, deployable C) makes OnlineVQ's decisions exactly, with
+    object records bounded by the cache and ghost sizes."""
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "vqonline"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqonline.c")], check=True)
+    if str(SANDBOX_DIR) not in sys.path:
+        sys.path.append(str(SANDBOX_DIR))
+    from policy_api import Context
+    from vq import V1_CANDIDATES, OnlineV1, design
+
+    keys = (_shifting_trace(60_000, 8, 5).astype(np.uint64) * np.uint64(0x9E3779B97F4A7C15)) >> np.uint64(4)
+    (tmp_path / "keys.u64").write_bytes(keys.astype("<u8").tobytes())
+    (tmp_path / "candidates").write_text("# v1\n" + "\n".join(V1_CANDIDATES) + "\n")
+    max_ghost = max(design(c).GHOST_RATIO for c in V1_CANDIDATES)
+    switched = 0
+    cases = [
+        (500, {"PERIOD": 3000, "RATE": 0.05, "MIN_MINI": 50}),
+        (2000, {"PERIOD": 2500, "START": 3, "RATE": 0.02, "MIN_MINI": 100}),
+        (6000, {"PERIOD": 4000, "START": 2, "RATE": 1.0}),  # exact shadows
+        (1500, {"PERIOD": 2000, "RATE": 0.1, "MIN_MINI": 50, "MARGIN": 0.02}),
+    ]
+    for capacity, knobs in cases:
+        policy, resident, misses = type("Short", (OnlineV1,), knobs)(capacity, Context()), set(), 0
+        for now, key in enumerate(keys.tolist()):
+            if key in resident:
+                policy.on_hit(key, now)
+                continue
+            misses += 1
+            policy.on_miss(key, now)
+            while len(resident) >= capacity:
+                resident.remove(policy.evict(now))
+            policy.insert(key, now)
+            resident.add(key)
+        args = [f"{name}={getattr(policy, attr)}" for name, attr in [("period", "PERIOD"), ("start", "START"), ("from", "FROM_WINDOW"), ("rate", "RATE"), ("min", "MIN_MINI"), ("margin", "MARGIN")]]
+        out = subprocess.run([str(binary), str(tmp_path / "keys.u64"), str(tmp_path / "candidates"), str(capacity), *args], capture_output=True, text=True, check=True).stdout.split()
+        assert [int(x) for x in out[:3]] == [misses, policy.switches, policy.current], (capacity, knobs)
+        assert int(out[4]) <= capacity * (1 + max_ghost) + 1, out  # records are reused
+        switched = max(switched, policy.switches)
+    assert switched >= 3
+
+
+def test_vqonline_v1_header_is_the_frozen_portfolio() -> None:
+    import re
+
+    root = Path(__file__).parents[1]
+    frozen = json.loads((root / "scripts/vqsim/v1/portfolio.json").read_text())["portfolio"]
+    header = (root / "scripts/vqsim/vqonline_v1.h").read_text()
+    assert re.findall(r'^\s*"([^"]*)",$', header, re.M) == frozen
+    assert f"#define VQO_V1_K {len(frozen)}" in header
 
 
 def _shifting_trace(n: int, segments: int, seed: int) -> np.ndarray:
@@ -593,6 +650,7 @@ def test_engineer_never_shows_identifiers(engineer_setup) -> None:
         "view_objects": {"experiment": "s3fifo", "trace": "target", "capacity": capacity, "select": "most_remisses", "count": 3},
         "view_diff": {"experiment": "mq", "trace": "target", "capacity": capacity},
         "view_workload": {"trace": "target"},
+        "view_mrc": {"trace": "target", "capacity": capacity, "experiment": "mq"},
         "view_positions": {"experiment": "s3fifo", "trace": "target", "capacity": capacity},
         "query_events": {"experiment": "s3fifo", "trace": "target", "capacity": capacity, "limit": 20},
         "experiment_info": {"experiment": "mq", "include_code": True},
@@ -977,6 +1035,86 @@ def test_view_knobs_sweeps_one_knob_at_a_time(engineer_setup) -> None:
     # Cached: a second call simulates nothing new and agrees.
     assert lab.knobs_view("target", capacity).text == view.text
     assert lab.knobs_view("target", capacity, buckets=8, visual=False).png is None
+
+
+def test_view_mrc_prices_a_cell_in_cache_size(engineer_setup) -> None:
+    pytest.importorskip("libcachesim")
+    from vista.benchmarks.cachelab.lab import Lab
+
+    task, lab = engineer_setup
+    capacity = task.capacities[1]
+    view = lab.mrc_view("target", capacity, "s3fifo")
+    data = view.data["mrc"]
+    sizes, ratio = np.array(data["sizes"]), {k: np.array(v) for k, v in data["miss_ratio"].items()}
+    assert capacity in sizes and sizes[0] < capacity < sizes[-1]
+    assert np.all(ratio["Belady"] <= ratio["S3-FIFO"] + 1e-12) and np.all(ratio["Belady"] <= ratio["LRU"] + 1e-12)
+    assert np.all(np.diff(ratio["Belady"]) <= 1e-12)  # OPT is a stack algorithm
+    # libCacheSim's S3-FIFO from a cold cache is the lab's S3-FIFO after the handover, so S3-FIFO is worth exactly C.
+    assert "note:" not in view.text and data["equivalent"]["s3fifo"] == pytest.approx(1.0)
+    assert data["equivalent"]["OPT"] is None or data["equivalent"]["OPT"] > 1.0
+    assert view.png is not None and "equivalent S3-FIFO size" in view.text and SECRET not in view.text
+    # Interpolation in log size on the non-increasing envelope.
+    assert Lab.equivalent_size(np.array([10, 20, 40]), np.array([100, 80, 40]), 60) == pytest.approx(20 * 2**0.5)
+    assert Lab.equivalent_size(np.array([10, 20, 40]), np.array([100, 80, 40]), 120) is None
+    assert Lab.equivalent_size(np.array([10, 20, 40]), np.array([100, 110, 40]), 100) == pytest.approx(10)
+    # Cached: a second call agrees; numbers only without the image.
+    again = lab.mrc_view("target", capacity, visual=False)
+    assert again.png is None and again.data["mrc"]["miss_ratio"] == data["miss_ratio"]
+
+
+def test_training_rounds_take_fresh_workloads_then_a_second_pass(tmp_path, monkeypatch) -> None:
+    """Rounds >= 2 train each lineage on workloads no earlier round used; once those run
+    out, --allow-repeats wraps around (oldest first) and lists the repeats."""
+    import argparse
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("cachelab_experience", Path(__file__).parents[1] / "scripts/cachelab_experience.py")
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+    root, suite = tmp_path / "root", tmp_path / "suite.json"
+    suite.write_text("[]")
+    root.mkdir()
+    (root / "targets.json").write_text(json.dumps({"train": {"suite": str(suite.resolve()), "targets": {f"w0{i}": f"t{i}" for i in range(1, 5)}}}))
+    trained: list[tuple[int, str]] = []
+
+    def run(out, lab, target, *args, **kwargs):
+        out.mkdir(parents=True)
+        trained.append((int(out.parent.name.split("-")[1]), out.name))
+        return {}
+
+    class Stub:
+        def __init__(self, path):
+            pass
+
+        def cases(self):
+            return []
+
+        def ops_log(self):
+            return []
+
+    monkeypatch.setattr(driver, "_run", run)
+    monkeypatch.setattr(driver, "_backfill", lambda library, runs: 0)
+    monkeypatch.setattr(driver, "Library", Stub)
+
+    def train(round_, per=1, repeats=False, limit=0):
+        trained.clear()
+        args = argparse.Namespace(root=root, suite=suite, seed=0, lineages=2, round=round_, limit=limit, per_round=per, allow_repeats=repeats, budget=0, backend="claude", baselines=None)
+        driver.cmd_train(args, [])
+        return sorted(trained)
+
+    assert train(1, limit=1) == [(1, "w01"), (2, "w02")]  # shares: lineage 1 w01 w03, lineage 2 w02 w04
+    with pytest.raises(SystemExit, match="merge"):
+        train(2)
+    (root / "library" / "merged").mkdir(parents=True)
+    (root / "library" / "merged" / "playbook.md").write_text("")
+    assert train(2) == [(1, "w03"), (2, "w04")]
+    assert not (root / "train" / "round-2" / "REPEATS.json").exists()
+    with pytest.raises(SystemExit, match="allow-repeats"):
+        train(3)
+    assert train(3, repeats=True) == [(1, "w01"), (2, "w02")]  # the oldest first
+    assert json.loads((root / "train" / "round-3" / "REPEATS.json").read_text()) == [{"lineage": 1, "workload": "w01"}, {"lineage": 2, "workload": "w02"}]
+    with pytest.raises(SystemExit, match="per-round"):
+        train(4, per=3, repeats=True)
 
 
 def test_repeats_are_named(engineer_setup) -> None:
@@ -1450,6 +1588,336 @@ def test_the_prefix_tuned_knobs_are_offered_as_a_reference(lab):
     text = initial_prompt([], "", role="engineer", references=("lru", TUNED_REFERENCE))
     assert f"`{TUNED_REFERENCE}` is S3-FIFO with its four knobs chosen separately" in text
     assert TUNED_REFERENCE not in initial_prompt([], "", role="engineer", references=("lru",))
+
+
+def test_vqsim_gate(tmp_path) -> None:
+    """The TinyLFU-style gate (vqsim only): each mode acts, a fixed online schedule is the handover run,
+    the miniature selector accepts gated candidates, bad gate settings are rejected."""
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    dense = _shifting_trace(40_000, 8, 11)
+    (tmp_path / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+    s3 = "maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"
+    three = "maxf=3 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"  # entry passes everything to a probation stage
+    gated = [f"{s3} gate=1 gmode={m}" for m in (0, 1, 2)] + [f"{three} gate=2 gmode=0"]
+
+    def run(jobs: str) -> subprocess.CompletedProcess:
+        (tmp_path / "jobs").write_text(jobs)
+        return subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True)
+
+    out = run("".join(f"200 8000 40 {c} handover=1\n" for c in (s3, *gated, three))).stdout.splitlines()
+    after = [int(line.split()[1]) for line in out]
+    assert all(a != after[0] for a in after[1:4]) and after[4] != after[5], after  # every mode acts, in a probation design too
+    for c in gated:
+        ho, one = run(f"200 8000 40 {c} handover=1\nonline 200 8000 40 schedule=s:1\n{s3}\n{c}\nend\n").stdout.splitlines()
+        assert one.split()[:3] == ho.split()[:2] + ["0"], c
+    mini = run(f"online 200 8000 40 rate=0.3 min=50\n{s3}\n" + "".join(c + "\n" for c in gated) + "end\n").stdout.split()
+    assert len(mini) == 43 and int(mini[1]) > 0
+    bad = [f"{s3} gate=0", f"{s3} gate=1 gmode=3", f"{s3} gate=2", f"{s3} gate=1 gwin=0"]
+    assert all(line.startswith("error") for line in run("".join(f"200 8000 40 {c}\n" for c in bad)).stdout.splitlines())
+    assert run(f"online 200 8000 40 rate=0.3 min=50\n{gated[0]}\n{gated[1]} gwin=4\nend\n").stdout.startswith("error bad-config 1")
+
+
+def test_vqsim_reuse_distance_rule(tmp_path) -> None:
+    """The reuse-distance rule (vqsim only, VQ_RD): rd=0 is the design itself, each rdmode bit acts on a trace with
+    regular reuse, a fixed online schedule is the handover run, the selector accepts rd candidates, the deployable
+    selector (vqonline.h) rejects them, bad settings are rejected."""
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    root = Path(__file__).parents[1] / "scripts/vqsim"
+    binary = tmp_path / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(root / "vqsim.c")], check=True)
+    rng = np.random.default_rng(5)  # objects requested with a period each (short to long) during a lifetime, plus one-hit noise
+    n_obj, horizon = 6000, 120_000
+    periods, start, life = rng.integers(5, 1500, n_obj), rng.integers(0, horizon, n_obj), rng.integers(2000, 30_000, n_obj)
+    events = sorted((t, k) for k in range(n_obj) for t in range(int(start[k]), int(min(horizon, start[k] + life[k])), int(periods[k])))
+    keys = np.array([k for _, k in events])
+    keys = np.where(rng.random(keys.size) < 0.3, 10_000 + np.arange(keys.size), keys)
+    _, dense = np.unique(keys, return_inverse=True)
+    (tmp_path / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+    split = dense.size // 5
+    s3 = "maxf=3 st=0.1,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"  # S3-FIFO, promoting on one hit in S
+
+    def run(jobs: str) -> list[str]:
+        (tmp_path / "jobs").write_text(jobs)
+        return subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True).stdout.splitlines()
+
+    variants = [f"{s3} rd=0 rdmode=15"] + [f"{s3} rd={x} rdmode={m}" for m in (1, 2, 4, 8) for x in (0.01, 4)]
+    out = run("".join(f"1000 {split} 40 {c} handover=1\n" for c in (s3, *variants)))
+    after = [int(line.split()[1]) for line in out]
+    assert after[1] == after[0], after  # rd=0: off
+    for j, m in enumerate((1, 2, 4, 8)):
+        assert after[0] != after[2 + 2 * j] or after[0] != after[3 + 2 * j], (m, after)  # each bit acts
+    for c in (variants[3], variants[6]):  # reinsertion, ghost admission
+        ho, one = run(f"1000 {split} 40 {c} handover=1\nonline 1000 {split} 40 schedule=s:1\n{s3}\n{c}\nend\n")
+        assert one.split()[:3] == ho.split()[:2] + ["0"], c
+    # takeover=3 merges by stage entry time at switches only: the takeover at the split is unchanged
+    three = "maxf=3 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"
+    plain, merged = (run(f"online 1000 {split} 40 schedule=s:1,20:2{t}\n{s3}\n{three}\n{variants[6]}\nend\n")[0].split() for t in ("", " takeover=3"))
+    assert plain[0] == merged[0] and plain[2] == merged[2] == "1"  # same prefix, one switch (at window 20)
+    assert plain[3:3 + 20] == merged[3:3 + 20] and plain[3 + 20:] != merged[3 + 20:]  # identical until the switch
+    mini = run(f"online 1000 {split} 40 rate=0.3 min=50\n{s3}\n" + "".join(c + "\n" for c in variants[1:]) + "end\n")[0].split()
+    assert len(mini) == 43 and int(mini[1]) > 0
+    bad = [f"{s3} rd=-1", f"{s3} rd=1 rdmode=16", f"{s3} rdmode=-1"]
+    assert all(line.startswith("error") for line in run("".join(f"1000 {split} 40 {c}\n" for c in bad)))
+    online = tmp_path / "vqonline"
+    subprocess.run(["cc", "-O2", "-o", str(online), str(root / "vqonline.c")], check=True)
+    dense.astype(np.uint64).tofile(tmp_path / "keys.u64")
+    (tmp_path / "cands").write_text(f"{s3}\n{variants[6]}\n")
+    rejected = subprocess.run([str(online), str(tmp_path / "keys.u64"), str(tmp_path / "cands"), "1000"], capture_output=True, text=True)
+    assert rejected.returncode != 0 or "error" in (rejected.stdout + rejected.stderr).lower()
+
+
+def test_vqsim_pool_screening(tmp_path) -> None:
+    """Pool screening at the split (vqsim online pool=, screen=): the designs it adds behave exactly as if they had been
+    candidates from the start (the replayed prefix is the miniatures' own sample), gated ones included; a pool line
+    equal to a candidate is skipped; bad settings are rejected."""
+    import os
+    import re
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    dense = _shifting_trace(40_000, 8, 11)
+    (tmp_path / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+    s3 = "maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"
+    three = "maxf=3 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"
+    pool = [s3, f"{s3} gate=1 gmode=1", three, f"{three} gate=2 gmode=0", "maxf=1 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+            f"{s3} rd=1 rdmode=4", "maxf=2 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0"]
+    (tmp_path / "pool").write_text("".join(c + "\n" for c in pool))
+    kept_pool = pool[1:]  # s3 is a candidate: skipped
+
+    def run(jobs: str, log: bool = False) -> subprocess.CompletedProcess:
+        (tmp_path / "jobs").write_text(jobs)
+        env = dict(os.environ, VQSIM_SCREEN_LOG="1") if log else {k: v for k, v in os.environ.items() if k != "VQSIM_SCREEN_LOG"}
+        return subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True, env=env)
+
+    head = "online 200 8000 40 rate=0.3 min=50"
+    for m in (1, 3, 6):
+        got = run(f"{head} pool={tmp_path / 'pool'} screen={m}\n{s3}\nend\n", log=True)
+        chosen = [int(x) for x in re.findall(r"pool line (\d+)", got.stderr)]
+        assert len(chosen) == m and len(set(chosen)) == m, got.stderr
+        plain = run(f"{head}\n{s3}\n" + "".join(kept_pool[j] + "\n" for j in chosen) + "end\n").stdout
+        assert got.stdout == plain and len(plain.split()) == 43, (m, chosen)
+    clipped = run(f"{head} pool={tmp_path / 'pool'} screen=50\n{s3}\nend\n", log=True)
+    assert len(re.findall(r"pool line", clipped.stderr)) == len(kept_pool)
+    # a log bound the prefix never reaches changes nothing; a short one wraps, in either wrap mode
+    full = run(f"{head} pool={tmp_path / 'pool'} screen=3\n{s3}\n{three}\nend\n").stdout
+    assert run(f"{head} pool={tmp_path / 'pool'} screen=3 logcap=1000000 wrapmode=1\n{s3}\n{three}\nend\n").stdout == full
+    for mode in (0, 1):
+        short = run(f"{head} pool={tmp_path / 'pool'} screen=3 logcap=400 wrapmode={mode}\n{s3}\n{three}\nend\n").stdout.split()
+        assert len(short) == 43 and int(short[0]) == int(full.split()[0])  # the prefix is S3-FIFO's either way
+    for bad in (f"{head} screen=2", f"online 200 8000 40 schedule=s:0 pool={tmp_path / 'pool'} screen=2",
+                f"{head} start=4 pool={tmp_path / 'pool'} screen=2", f"{head} pool={tmp_path / 'missing'} screen=2"):
+        assert run(f"{bad}\n{s3}\nend\n").stdout.startswith("error"), bad
+
+
+def test_vqsim_trial_before_switch(tmp_path) -> None:
+    """trial=H (vqsim online): with rate=1 the mirror is the live cache itself, so each trial's 'stay' count is the live
+    cache's misses since the snapshot, and its replay count is what a live cache that really switched there would have
+    missed (a fixed schedule with the same history); a switch is made only when the replay wins. Bad settings fail."""
+    import os
+    import re
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    binary = tmp_path / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    dense = _shifting_trace(40_000, 8, 11)
+    (tmp_path / "ids.u32").write_bytes(dense.astype(np.uint32).tobytes())
+    s3 = "maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"
+    three = "maxf=3 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"
+    cands = [s3, three, f"{s3} gate=1 gmode=1", "maxf=1 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+             "maxf=2 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0", f"{three} gate=2 gmode=0"]
+    body = "".join(c + "\n" for c in cands) + "end\n"
+
+    def run(head: str) -> tuple[str, str]:
+        (tmp_path / "jobs").write_text(f"{head}\n{body}")
+        got = subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True,
+                             check=True, env=dict(os.environ, VQSIM_TRACE="1"))
+        return got.stdout, got.stderr
+
+    checked = 0
+    for h_windows in (1, 2):
+        raw, err = run(f"online 200 8000 40 rate=1 min=50 trial={h_windows}")
+        out = [int(x) for x in raw.split()]
+        assert len(out) == 43
+        win = out[3:]
+        history: list[tuple[int, int]] = []  # (window, design) of each switch the live cache made
+        trials = 0
+        for line in err.splitlines():
+            if m := re.match(r"trial w=(\d+) live=(-?\d+) leader=(\d+) h=(\d+) stay=(\d+) pass=(\d)", line):
+                w, live, leader, h, stay, ok = (int(x) for x in m.groups())
+                trials += 1
+                w0 = w - h_windows  # the oldest snapshot: a decision point (or before the split) h_windows windows back
+                assert stay == sum(win[w0:w]), line
+                assert ok == (h < stay), line
+                if all(sw < w0 for sw, _ in history):  # the snapshot's own decision made no switch: a schedule can replay it
+                    sched = ",".join(f"{sw}:{d}" for sw, d in history) + ("," if history else "") + f"{w0}:{leader}"
+                    ref = [int(x) for x in run(f"online 200 8000 40 schedule={sched}")[0].split()]
+                    assert sum(ref[3:][w0:w]) == h, (line, sched)
+                    checked += 1
+                if ok:
+                    history.append((w, leader))
+            elif m := re.match(r"decide w=(\d+) live=(-?\d+) leader=(\d+)", line):
+                w, live, leader = (int(x) for x in m.groups())
+                assert live == (history[-1][1] if history else -1), line
+        assert trials > 0 and out[2] == max(len(history) - 1, 0)
+    assert checked >= 3
+    for bad in ("online 200 8000 40 schedule=s:1 trial=1", "online 200 8000 40 rate=1 start=4 trial=1", "online 200 8000 40 trial=-1"):
+        assert run(bad)[0].startswith("error bad-online"), bad
+
+
+def test_vqsim_reseed_at_split() -> None:
+    """reseed=1 (vqsim online): at the split every miniature takes over the mirror's (S3-FIFO's) cache. With rate=1 the
+    miniatures are exact, so each later leader is the design with the fewest misses over its cold run's windows before
+    the split plus a live run's that took over S3-FIFO's cache at the split (schedule=s:i) after it."""
+    import os
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    tmp = Path(tempfile.mkdtemp())
+    binary = tmp / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    (tmp / "ids.u32").write_bytes(_shifting_trace(40_000, 8, 11).astype(np.uint32).tobytes())
+    s3 = "maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"
+    three = "maxf=3 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"
+    cands = [s3, three, f"{s3} gate=1 gmode=1", "maxf=1 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+             "maxf=2 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0", "maxf=1 entry=0 overflow=1 st=0.05,1,9,1,0,-1,1 st=0,1,1,1,2,-1,0"]
+    body = "".join(c + "\n" for c in cands) + "end\n"
+
+    def run(jobs: str) -> tuple[list[list[int]], str]:
+        (tmp / "jobs").write_text(jobs)
+        got = subprocess.run([str(binary), str(tmp / "ids.u32"), str(tmp / "jobs")], capture_output=True, text=True, check=True,
+                             env=dict(os.environ, VQSIM_TRACE="1"))
+        return [[int(x) for x in line.split()] for line in got.stdout.splitlines()], got.stderr
+
+    cold = [r[2:] for r in run("".join(f"200 8000 40 {c}\n" for c in cands))[0]]
+    took = [run(f"online 200 8000 40 schedule=s:{i}\n{body}")[0][0][3:] for i in range(len(cands))]
+    _, err = run(f"online 200 8000 40 rate=1 min=50 reseed=1\n{body}")
+    decisions = [tuple(int(x) for x in m.groups()) for m in re.finditer(r"decide w=(\d+) live=-?\d+ leader=(\d+)", err)]
+    assert len(decisions) == 32
+    for w, leader in decisions:
+        score = [sum(cold[i][2:8]) + sum(took[i][8:w]) for i in range(len(cands))]
+        assert leader == score.index(min(score)), (w, leader, score)
+    assert len({leader for _, leader in decisions}) > 1  # the scores do move the choice
+    plain, _ = run(f"online 200 8000 40 rate=1 min=50\n{body}")
+    reseeded, _ = run(f"online 200 8000 40 rate=1 min=50 reseed=1\n{body}")
+    p, q = plain[0], reseeded[0]
+    assert p[0] == q[0] and p[3:3 + 9] == q[3:3 + 9] and p[3:] != q[3:]  # the same through the split's window, then not
+    for bad in ("online 200 8000 40 schedule=s:1 reseed=1", "online 200 8000 40 start=4 reseed=1"):
+        (tmp / "jobs").write_text(f"{bad}\n{body}")
+        out = subprocess.run([str(binary), str(tmp / "ids.u32"), str(tmp / "jobs")], capture_output=True, text=True, check=True).stdout
+        assert out.startswith("error bad-online"), bad
+
+
+def test_vqsim_replay_takeover() -> None:
+    """replay=L (vqsim online): the next design rebuilds its state from the logged requests and is reconciled with what
+    is cached. S3-FIFO taking over S3-FIFO from a log of the whole history changes nothing; the live records stay
+    consistent after every takeover (VQSIM_CHECK), for multi-stage, gated and static designs, with short and long logs."""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+
+    if shutil.which("cc") is None:
+        pytest.skip("no C compiler")
+    tmp = Path(tempfile.mkdtemp())
+    binary = tmp / "vqsim"
+    subprocess.run(["cc", "-O2", "-o", str(binary), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    (tmp / "ids.u32").write_bytes(_shifting_trace(40_000, 8, 11).astype(np.uint32).tobytes())
+    s3 = "maxf=3 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"
+    three = "maxf=3 st=0.05,0,0,1,1,-1,0 st=0.05,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0"
+    cands = [s3, three, f"{s3} gate=1 gmode=1", "maxf=1 st=0.02,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+             "maxf=2 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0 ghost=0.5", f"{three} gate=2 gmode=0",
+             "maxf=1 entry=0 overflow=1 st=0.05,1,9,1,0,-1,1 st=0,1,1,1,2,-1,0"]
+    body = "".join(c + "\n" for c in cands) + "end\n"
+
+    def run(jobs: str) -> list[list[int]]:
+        (tmp / "jobs").write_text(jobs)
+        got = subprocess.run([str(binary), str(tmp / "ids.u32"), str(tmp / "jobs")], capture_output=True, text=True, check=True,
+                             env=dict(os.environ, VQSIM_CHECK="1"))
+        assert "check failed" not in got.stderr, got.stderr[:2000]
+        return [[int(x) for x in line.split()] if line[0].isdigit() else line for line in got.stdout.splitlines()]
+
+    plain = run(f"200 8000 40 {s3}\n")[0]
+    assert run(f"online 200 8000 40 schedule=s:0 replay=1000\n{body}")[0][3:] == plain[2:]
+    for rp in (0.5, 4, 1000):
+        jobs = "".join(f"online 200 8000 40 schedule=s:{i},20:{(i + 2) % 7},30:{(i + 5) % 7} replay={rp}\n{body}" for i in range(7))
+        outs = run(jobs + f"online 200 8000 40 rate=0.3 min=50 replay={rp}\n{body}")
+        assert all(len(o) == 43 for o in outs) and outs[0][2] == 2
+    for bad in ("online 200 8000 40 rate=0.3 min=50 replay=4 trial=1", "online 200 8000 40 rate=0.3 min=50 replay=4 reseed=1",
+                "online 200 8000 40 rate=0.3 min=50 replay=-1"):
+        assert run(f"{bad}\n{body}")[0].startswith("error bad-online"), bad
+
+
+def test_evolve_polsim_contract(tmp_path) -> None:
+    """The evolve harness: the S3-FIFO seed in the policy.h contract, run by polsim, misses exactly as vqsim's S3-FIFO
+    (ghost compaction included); a policy naming an uncached victim is caught; one that uses the heap is rejected."""
+    import importlib.util
+    import shutil
+    import subprocess
+
+    if shutil.which("cc") is None or shutil.which("nm") is None:
+        pytest.skip("no C toolchain")
+    ev = Path(__file__).parents[1] / "scripts/vqsim/evolve"
+    spec = importlib.util.spec_from_file_location("evolve", ev / "evolve.py")
+    evolve = importlib.util.module_from_spec(spec); spec.loader.exec_module(evolve)
+    binary, err = evolve.build(ev / "seeds/s3fifo.c", tmp_path)
+    assert binary and not err, err
+    subprocess.run(["cc", "-O2", "-o", str(tmp_path / "vqsim"), str(Path(__file__).parents[1] / "scripts/vqsim/vqsim.c")], check=True)
+    rng = np.random.default_rng(7)
+    ids = (rng.zipf(2.05, 600_000) % 400_000).astype(np.uint32)
+    (tmp_path / "ids.u32").write_bytes(ids.tobytes())
+    caps, n = [1, 10, 300, 3000, 30000], len(ids)
+    s3 = "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0"
+    (tmp_path / "jobs").write_text("".join(f"{c} {n // 5} 40 {s3}\n" for c in caps))
+    ref = subprocess.run([str(tmp_path / "vqsim"), str(tmp_path / "ids.u32"), str(tmp_path / "jobs")], capture_output=True, text=True, check=True).stdout
+    got = subprocess.run([str(binary), str(tmp_path / "ids.u32"), str(n // 5), "40"] + [str(c) for c in caps], capture_output=True, text=True, check=True).stdout
+    assert got == ref
+    header = '#include "policy.h"\nsize_t policy_bytes(uint64_t c) { (void)c; return 64; }\nvoid policy_init(void *a, uint64_t c) { (void)a; (void)c; }\n'
+    header += "void policy_hit(void *a, uint64_t k) { (void)a; (void)k; }\nint policy_admit(void *a, uint64_t k) { (void)a; (void)k; return 1; }\n"
+    header += "void policy_insert(void *a, uint64_t k) { (void)a; (void)k; }\n"
+    (tmp_path / "cheat.c").write_text(header + "uint64_t policy_victim(void *a) { (void)a; return 12345; }\n")
+    (tmp_path / "c").mkdir()
+    cheat, err = evolve.build(tmp_path / "cheat.c", tmp_path / "c")
+    assert cheat and not err, err
+    out = subprocess.run([str(cheat), str(tmp_path / "ids.u32"), str(n // 5), "40", "10"], capture_output=True, text=True, check=True).stdout
+    assert out.startswith("error victim")
+    (tmp_path / "heap.c").write_text("#include <stdlib.h>\n" + header + "uint64_t policy_victim(void *a) { (void)a; return (uint64_t)(size_t)malloc(8); }\n")
+    (tmp_path / "h").mkdir()
+    heap, err = evolve.build(tmp_path / "heap.c", tmp_path / "h")
+    assert heap is None and "malloc" in err
+    # knobs: the share seed held at setting 0 is S3-FIFO; with the harness picking, it reports its setting changes
+    (tmp_path / "k").mkdir()
+    share, err = evolve.build(ev / "seeds/s3fifo_share.c", tmp_path / "k")
+    assert share and not err, err
+    assert subprocess.run([str(share), "--knobs"], capture_output=True, text=True, check=True).stdout.strip() == "8"
+    assert subprocess.run([str(binary), "--knobs"], capture_output=True, text=True, check=True).stdout.strip() == "1"
+    argv = [str(share), str(tmp_path / "ids.u32"), str(n // 5), "40"] + [str(c) for c in caps]
+    fixed = subprocess.run(argv, capture_output=True, text=True, check=True, env={**os.environ, "POLSIM_KNOB": "0"})
+    assert fixed.stdout == ref and all(l.split()[2:] == ["0", "0"] for l in fixed.stderr.splitlines() if l.startswith("knobs "))
+    gated = subprocess.run(argv, capture_output=True, text=True, check=True)
+    lines = gated.stdout.splitlines()
+    assert len(lines) == len(caps) and not any(l.startswith("error") for l in lines)
+    assert [l.split()[1] for l in gated.stderr.splitlines() if l.startswith("knobs ")] == [str(c) for c in caps]
 
 
 @pytest.fixture(scope="module")

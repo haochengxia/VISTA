@@ -732,6 +732,47 @@ def render_workload(profile: dict[str, Any], *, title: str, subtitle: str) -> by
     return _png(figure)
 
 
+def render_mrc(profile: dict[str, Any], *, title: str, subtitle: str) -> bytes:
+    """Miss ratio against cache size (log scale) for S3-FIFO, LRU and OPT, with each
+    marked policy at C and a guide to the size at which S3-FIFO matches it."""
+    height = 560
+    figure = _figure(height)
+    _title(figure, title, subtitle)
+    axis = figure.add_axes((0.08, 0.1, 0.74, 0.76))
+    _style(axis, ylabel="miss ratio (requests after the handover)")
+    sizes, capacity, ratio = profile["sizes"].astype(float), profile["capacity"], profile["ratio"]
+    styles = {"S3-FIFO": (CATEGORICAL[0], "-", "o"), "LRU": (CATEGORICAL[1], "-", "s"), "Belady": (SECONDARY, (0, (4, 3)), None)}
+    names = {"S3-FIFO": "S3-FIFO", "LRU": "LRU", "Belady": "OPT (Belady)"}
+    ends = []
+    for algorithm, (color, style, marker) in styles.items():
+        axis.plot(sizes, ratio[algorithm], color=color, linestyle=style, linewidth=LINE, marker=marker, markersize=4.5, label=names[algorithm], zorder=3)
+        ends.append((sizes[-1], float(ratio[algorithm][-1]), names[algorithm], SECONDARY))
+    axis.set_xscale("log", base=2)
+    axis.axvline(capacity, color=MUTED, linewidth=0.8, zorder=1)
+    axis.annotate(f"C={capacity:,}", (capacity, 1.0), xycoords=("data", "axes fraction"), xytext=(3, -2), textcoords="offset points", fontsize=8, color=SECONDARY, va="top")
+    top = max(float(np.max(ratio["LRU"])), float(np.max(ratio["S3-FIFO"])))
+    for label, (value, equivalent) in profile["marks"].items():
+        top = max(top, value)
+        axis.plot([capacity], [value], marker="D", color=INK, markersize=7, markeredgecolor=SURFACE, markeredgewidth=1.5, linestyle="none", zorder=5)
+        text = f"{label}: like S3-FIFO at {equivalent / capacity:.2f} C" if equivalent else f"{label}: outside the sizes shown"
+        if equivalent:
+            axis.plot([min(capacity, equivalent), max(capacity, equivalent)], [value, value], color=INK, linewidth=0.9, linestyle=":", zorder=4)
+            axis.plot([equivalent], [value], marker="o", color=INK, markersize=4, zorder=5)
+        axis.annotate(text, (capacity, value), xytext=(-8, 12), textcoords="offset points", ha="right", fontsize=8.5, color=INK,
+                      bbox={"boxstyle": "round,pad=0.2", "facecolor": SURFACE, "edgecolor": "none", "alpha": 0.9}, zorder=6)
+    if profile.get("opt_equivalent"):
+        axis.text(0.01, 0.02, f"OPT at C does what {profile['opt_equivalent'] / capacity:.2f} C does for S3-FIFO", transform=axis.transAxes, fontsize=8.5, color=SECONDARY)
+    axis.set_ylim(0, top * 1.08 if top > 0 else 1)
+    axis.set_xlim(sizes[0] / 1.15, sizes[-1] * 1.15)
+    axis.set_xticks(sizes)
+    axis.set_xticklabels([f"{size / capacity:.3g}C\n{int(size):,}" for size in sizes], fontsize=8, color=SECONDARY)
+    axis.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    axis.set_xlabel("cache size (multiple of C, objects)", color=SECONDARY, fontsize=9)
+    axis.legend(loc="upper right", frameon=False, fontsize=8.5, labelcolor=SECONDARY)
+    _label_ends(axis, ends)
+    return _png(figure)
+
+
 def render_positions(result: dict[str, Any], *, colors: dict[str, str], title: str, subtitle: str) -> bytes:
     """Hit positions per queue and ghost (S4-FIFO's statistics), small multiples."""
     rows = [(name, data, False) for name, data in result["queues"].items()] + [(name, data, True) for name, data in result["ghosts"].items()]

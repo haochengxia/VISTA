@@ -1,0 +1,95 @@
+# CacheLab v2 follow-up: can the cost of switching be cut? (2026-11-23, DEVELOPMENT, post hoc)
+# final-long was diagnosed cell by cell (PREREG-final.md), so here it is a development set, not a test.
+# train-long: CV 32 from portfolio-v1all256-cv.json (+16 screened from pool.txt); final-long: v1's frozen 32 (+16 screened).
+# Spec fields: K:RATE:MIN:MARGIN:TAKEOVER:SCREEN:LOGC:LOGMIN:WRAP:TRIAL:RESEED (vq_portfolio_real.py). Aggregates only.
+# Every run with the new options off reproduced v1 and v2 exactly.
+
+## v2 (32 + 16 screened, log max(C, 65536), wrapmode 1)        train-long (100 cells, 25 traces)   final-long (64 cells, 16 traces)
+3L-Cache                                                      -2.64%  -0.02%   -                  -2.81%  -1.74%   -
+v2                                                            -4.63%  -1.50%  20/25               -3.17%  -2.30%   7/16
+trial=1 (try each switch on a mirror, one decision back)      -4.26%  -1.36%  18/25               -3.15%  -2.29%   7/16
+trial=2                                                       -3.79%  -1.39%  18/25               -3.24%  -2.30%   7/16
+trial=1, split takeover not tried                             -3.92%  -1.45%  18/25               -3.26%  -2.29%   8/16
+trial=2, split takeover not tried                             -3.92%  -1.47%  18/25               -3.20%  -2.30%   7/16
+margin 0.01                                                   -4.53%  -1.46%  19/25               -3.08%  -2.12%   8/16
+margin 0.05                                                   -4.25%  -1.18%  19/25               -2.85%  -2.03%   9/16
+margin 1 (keep the split's pick)                              -3.78%  -1.08%  18/25               -0.94%  -2.03%   9/16
+takeover=1 (by counter)                                       -3.72%  -0.78%  18/25               -2.83%  -1.88%   7/16
+takeover=2 (all to main)                                      -4.41%  -1.25%  18/25               -3.04%  -2.23%   7/16
+takeover=4 (drain; removed from the engine)                   -2.81%  -0.27%  11/25               -0.77%  -1.14%   4/16
+reseed=1 (miniatures take over the mirror at the split)       -4.57%  -1.44%  20/25               -3.30%  -2.24%   7/16
+reseed=1, pool without the 40 static-set designs              -4.57%  -1.44%  20/25               -3.30%  -2.24%   7/16
+
+## v1 (32, no screening)
+v1                                                            -4.20%  -1.40%  19/25               -3.30%  -2.38%   9/16
+trial=1                                                       -3.87%  -1.27%  18/25               -3.16%  -2.39%   8/16
+takeover=1                                                    -3.96%  -1.21%  19/25               -2.77%  -2.05%   7/16
+takeover=2                                                    -4.11%  -1.22%  19/25               -3.21%  -2.23%   9/16
+takeover=4 (drain)                                            -2.67%  -0.58%  11/25               -1.69%  -1.36%   5/16
+reseed=1                                                      -4.20%  -1.38%  19/25               -3.14%  -2.35%   7/16
+
+## Notes
+- trial: a miniature mirror of the live cache (same takeovers) is snapshotted at decision points; a switch goes ahead only if
+  replaying the requests since the snapshot with the switch made there beats the mirror. It judges a switch by one or two
+  windows, which hold all of its transient but little of its gain: in large caches good takeovers are refused
+  (train >=8%: -5.66% -> -2.82%). With the split exempt, one train cell whose split pick was poor could not leave it
+  (+46.95% vs S3-FIFO, against -19.87% without the trial; 0.67 pt of the train mean). On final-long it cut switches
+  (median 3 -> 1) but gained at most 0.09 pt: the switches it can refuse are not where the cost is.
+- margins: switching after the split is needed; it is how the selector leaves poor split picks.
+- takeover mappings: the stage mapping (0) is best of 0-2 on both suites.
+- drain: the new design starts empty and the old objects only serve hits until evicted first. New objects overflow into
+  main as in a cold start, so the warm working set is lost. (The diagnosis's "empty start converges" compared with an
+  S3-FIFO that was also empty.) Reverted; vqcore.h is unchanged.
+- reseed: scoring candidates after the split by runs that took over S3-FIFO's (sampled) cache moves final-long's mean
+  by -0.13 pt for v2 and +0.16 pt for v1, train by +0.06 / 0.00 pt, and no trace count.
+- Earlier (roadmap): running the selector from window 4 instead of taking over at the split loses 0.8 pt on train.
+
+# Option 1 (the user's choice): keep the bar, make takeovers cheap by construction (2026-11-23, DEVELOPMENT, post hoc)
+## Is a takeover cheaper between S3-structured designs? (v2/diag/diag_fam.py on diag_b's data; cost per change, pt of its cell)
+# S3-structured (study/vq_family.py): two stages, small -> main, main -> itself, stage-to-stage takeover, small's threshold reachable.
+                       split: within family / other    later switch: within family / other
+v1 final-long          +0.13 / +0.25 (15 / 49)          -0.00 / +0.08 (8 / 115)
+v2 final-long          +0.08 / +0.38 (20 / 44)          +0.04 / +0.11 (49 / 172)
+v1 train-long          +0.05 / +0.04 (30 / 70)          +0.00 / +0.11 (26 / 131)
+v2 train-long          +0.08 / +0.07 (38 / 62)          +0.01 / +0.04 (80 / 253)
+## Ceilings on train-long (cold runs, exact): S3-structured 1,053 of 2,944 designs
+all designs: hindsight -6.02% 23/25, prefix pick -4.81% 20/25, online leader -5.42% 23/25
+S3-structured: hindsight -5.60% 23/25, prefix pick -4.16% 18/25, online leader -5.08% 20/25
+## Realistic selector, family only (CV portfolio-s3fam-cv on train, frozen portfolio-s3fam (32, all train cells) on final; pool = pool.txt's 1,042 family designs)
+                                         train-long             final-long
+v1 (reference)                           -4.20%  19/25          -3.30%  9/16
+v2 (reference)                           -4.63%  20/25          -3.17%  7/16
+family 32 x 0.5%                         -4.12%  17/25          -3.03%  8/16
+family 48 x 0.5% (final: 32 only)        -4.25%  18/25          -3.03%  8/16
+family 32 x 0.5% + 16 screened           -4.35%  18/25          -3.05%  8/16
+family 8 x 2%                            -3.97%  16/25          -2.64%  8/16
+family 16 x 1%                           -4.13%  18/25          -2.74%  7/16
+family 16 x 2%                           -4.16%  17/25          -2.81%  8/16
+family 32 x 1%                           -4.01%  16/25          -3.02%  8/16
+v1 16 x 1%                               -3.86%  17/25          -3.28% 10/16
+v1 32 x 1%                               -4.18%  19/25          -3.26%  9/16
+- Takeovers within the family are 3-5x cheaper on final-long, but the family selector loses more elsewhere: its idealized
+  CV K=32 is -4.71% on train, realistic -4.12%; denser sampling does not close that gap, so it is not sampling noise alone.
+## Per trace on final-long, all six variants (v1, v2, v2+trial1, v2+reseed, family 32, family 32+16)
+9 traces are won by at least one variant, 7 by all. The best variant per trace minus 3L-Cache (pt), sorted:
+  -4.35 -3.06 -2.45 -1.83 -1.44 -1.41 -1.38 -0.34 -0.24 +0.00 +0.04 +0.07 +0.11 +0.16 +0.17 +2.17
+v1 alone: -4.30 -3.06 -2.04 -1.79 -1.41 -1.38 -0.48 -0.34 -0.16 +0.05 +0.10 +0.12 +0.17 +1.34 +1.48 +3.86
+Six of the seven traces no variant wins are within 0.17 pt of 3L-Cache: the third criterion turns on near-ties.
+
+# Replay takeover (vqsim replay=L, 2026-11-23, DEVELOPMENT): at a takeover the next design rebuilds its own state by
+# replaying the live cache's last L*C requests (a full-scale log of ids), reconciled with what is cached.
+                                         train-long             final-long (dev)
+v1 (stage mapping)                       -4.20%  19/25          -3.30%   9/16
+v1 replay 2 / 8 / 32                     -4.06 / -4.19 / -4.20  -2.91 / -2.99 / -3.28 (10/16)
+v1 replay 128 / 512                      -4.35% 19/25 / -4.28% 18/25    -3.39% 10/16 / -3.47% 10/16
+v2 (stage mapping)                       -4.63%  20/25          -3.17%   7/16
+v2 replay 2 / 8 / 32                     -4.31 / -4.44 / -4.62  -2.63 / -2.91 / -3.26 (9/16)
+v2 replay 128 / 512                      -4.66% 20/25 / -4.64% 20/25    -3.38% 11/16 / -3.42% 11/16
+- Short logs are worse than the stage mapping (the replayed state is unconverged); from about 128 C requests on the
+  replay beats it on final-long (v2 +0.21 pt, v1 +0.09) without costing train. The log is 4-byte ids: 512 bytes per
+  cache slot at L=128. v2 + replay 128 reaches the bar on final-long (11/16) for the first time, but final-long has
+  been used as a development set about 27 times, so this is a lead for a fresh suite, not a result.
+
+# evolve harness (scripts/vqsim/evolve): single policies in a C contract (policy.h), run cold over whole traces as
+# 3L-Cache is. polsim (driver) owns the cache's contents and checks victims; seeds/s3fifo.c reproduces vqsim's
+# S3-FIFO exactly (tested; train-long: +0.00% in every cell, 10/25 traces beat 3L-Cache, 11 s per full scoring).

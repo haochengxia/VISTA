@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CacheLab: agent-designed FIFO caches with an online selector</title>
+<meta name="description" content="LLM agents design FIFO-based cache eviction policies; an online selector picks among them while the cache runs. Version 1 results against S3-FIFO and 3L-Cache on long real traces.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#overview">CacheLab</a>
+    <nav aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#protocol">Protocol</a>
+      <a href="#results">Results</a>
+      <a href="#findings">Findings</a>
+      <a href="#costs">Costs</a>
+      <a href="#status">Status</a>
+      <a href="#reproduce">Reproduce</a>
+    </nav>
+    <button class="theme-toggle" id="theme-toggle" type="button">Theme: auto</button>
+  </div>
+</header>
+
+<main>
+<section id="overview">
+  <h1>CacheLab</h1>
+  <p class="lede">LLM agents design FIFO caches. A small online selector picks among them while the cache runs.</p>
+  <p>CacheLab is a research benchmark for one question: can LLM agents improve on S3-FIFO, a simple FIFO-based eviction policy that is hard to beat? Version 1 answers with a policy built only from FIFO queues. It keeps 32 designs, half of them written by LLM architects. An online selector runs each design on a 0.5% sample of the keys and gives the live cache to the design with the fewest misses so far.</p>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="value" data-fill="v1-mean">–</div>
+      <div class="label">fewer misses than S3-FIFO on held-out traces, mean of <span data-fill="cells">88</span> cells</div>
+      <div class="compare"><span class="sw bg-c2" aria-hidden="true"></span>3L-Cache: <span data-fill="3l-mean">–</span></div>
+    </div>
+    <div class="tile">
+      <div class="value" data-fill="v1-median">–</div>
+      <div class="label">fewer misses than S3-FIFO, median cell</div>
+      <div class="compare"><span class="sw bg-c2" aria-hidden="true"></span>3L-Cache: <span data-fill="3l-median">–</span></div>
+    </div>
+    <div class="tile">
+      <div class="value" data-fill="v1-worse">–</div>
+      <div class="label">cells where v1 misses more than S3-FIFO</div>
+      <div class="compare"><span class="sw bg-c2" aria-hidden="true"></span>3L-Cache: <span data-fill="3l-worse">–</span></div>
+    </div>
+    <div class="tile">
+      <div class="value" data-fill="traces-won">–</div>
+      <div class="label">held-out traces where v1 beats 3L-Cache</div>
+      <div class="compare">Our bar for a clear win: <span data-fill="traces-bar">15</span></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <p><strong>Where v1 stands.</strong> On traces it never saw, v1 beats 3L-Cache, a learned policy and the strongest one we compare with, on both the mean and the median. It is also rarely worse than S3-FIFO. It is not yet a clear win: it wins 12 of 22 traces, below our pre-set bar of 15 (to be met twice), and 3L-Cache stays ahead at the largest caches. A fresh, untouched test suite will decide.</p>
+  </div>
+
+  <figure class="chart" id="fig-heldout">
+    <p class="title">On held-out traces, v1 removes more misses than 3L-Cache, on both the mean and the median</p>
+    <p class="sub">Fewer misses than S3-FIFO over the last 80% of each trace, 88 cells (22 traces × 4 cache sizes). Each row was fixed before it ran and was run once. The grey rows are other configurations of the same selector. Two of them need more than 2× S3-FIFO's memory: 84 board picks and all 426 seeds. The idealized bound runs every candidate at full size and switches for free.</p>
+    <div class="legend-slot"></div>
+    <div class="pair">
+      <div id="fig-heldout-mean"><p class="sub"><strong>Mean</strong></p><div class="plot"></div></div>
+      <div id="fig-heldout-median"><p class="sub"><strong>Median</strong></p><div class="plot"></div></div>
+    </div>
+    <div class="table-slot"></div>
+  </figure>
+</section>
+
+<section id="how">
+  <h2>How it works</h2>
+
+  <h3>1. A space of FIFO designs</h3>
+  <p>Every design is a few FIFO queues, called stages. A hit never moves an object; it only raises a small counter. When an object reaches the tail of its stage, the counter decides its fate: if it reaches the stage's threshold, the object moves <em>up</em> (promotion or reinsertion); otherwise it moves <em>down</em> to another stage, or leaves into a ghost that remembers recent keys. S3-FIFO is one point in this space:</p>
+  <figure class="diagram" aria-label="S3-FIFO as a virtual-queue design">
+    <svg viewBox="0 0 780 220" role="img" aria-labelledby="dg1-title">
+      <title id="dg1-title">S3-FIFO as two FIFO stages and a ghost: new objects enter small; at small's tail, objects with a hit move up to main and the rest go to the ghost; at main's tail, objects with a hit are reinserted and the rest are evicted; a ghost hit inserts into main.</title>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="dg-head"/></marker>
+      </defs>
+      <text x="16" y="74" class="dg-s">new object</text>
+      <path d="M92,70 H126" class="dg-arrow" marker-end="url(#ah)"/>
+      <rect x="130" y="44" width="170" height="56" rx="8" class="dg-box small"/>
+      <text x="215" y="68" class="dg-t" text-anchor="middle">small</text>
+      <text x="215" y="88" class="dg-s" text-anchor="middle">10% of the cache</text>
+      <path d="M300,62 H436" class="dg-arrow" marker-end="url(#ah)"/>
+      <text x="368" y="54" class="dg-m" text-anchor="middle">counter ≥ 1: up</text>
+      <rect x="440" y="44" width="200" height="56" rx="8" class="dg-box main"/>
+      <text x="540" y="68" class="dg-t" text-anchor="middle">main</text>
+      <text x="540" y="88" class="dg-s" text-anchor="middle">90% of the cache</text>
+      <path d="M640,56 C676,56 676,24 640,24 H476 C460,24 456,30 456,40" class="dg-arrow" marker-end="url(#ah)"/>
+      <text x="560" y="17" class="dg-m" text-anchor="middle">counter ≥ 1: reinsert, counter − 1</text>
+      <path d="M640,86 H700" class="dg-arrow" marker-end="url(#ah)"/>
+      <text x="706" y="90" class="dg-s">evict</text>
+      <path d="M300,88 C330,88 338,112 340,150" class="dg-arrow" marker-end="url(#ah)"/>
+      <text x="326" y="130" class="dg-m" text-anchor="end">counter 0: down</text>
+      <rect x="300" y="154" width="180" height="50" rx="8" class="dg-box ghost"/>
+      <text x="390" y="175" class="dg-t" text-anchor="middle">ghost</text>
+      <text x="390" y="194" class="dg-s" text-anchor="middle">keys only, 0.9× the cache</text>
+      <path d="M480,178 C530,178 540,140 540,104" class="dg-arrow" marker-end="url(#ah)"/>
+      <text x="550" y="150" class="dg-m">ghost hit: insert into main</text>
+    </svg>
+  </figure>
+  <p>A design may have up to six stages. Each stage sets its size, its threshold, where up and down moves go, and how the counter decays. Two optional mechanisms are Delayed FIFO-Reinsertion and Age-Guided Eviction. S4-FIFO-like skip regions, 2Q-like layouts and hot/warm mains are all designs in this space. The Python sandbox the agents use (<code>vq.py</code>) and the C simulator (<code>vqsim.c</code>, about 100× faster) agree exactly, and a test checks it.</p>
+
+  <h3>2. Designers: sweeps and LLM architects</h3>
+  <ol class="steps">
+    <li><strong>Host sweeps</strong><span class="big">426</span>seed designs: S3-FIFO's parameter grid, S4-FIFO-like designs, random designs in the space.</li>
+    <li><strong>LLM architects</strong><span class="big">156</span>design families from 17 architects (GLM-5.3 Flash) over four generations. Each family comes with a hypothesis. The architects read the results and recorded 43 findings.</li>
+    <li><strong>A shared board</strong><span class="big">100</span>anonymous training cells. The board scores every design on them and shows which cells each family wins and loses.</li>
+    <li><strong>Greedy portfolio</strong><span class="big">32</span>designs, added one at a time to S3-FIFO by how much each lowers the mean. 16 of them are architect designs.</li>
+  </ol>
+
+  <h3>3. An online selector</h3>
+  <p>S3-FIFO serves the cache until the takeover. From the first request on, a miniature simulation of every candidate runs on a spatial sample of the keys (SHARDS-style; 0.5%, at least 200 objects per miniature cache). At the takeover and at every window after it, the live cache switches to the candidate with the fewest misses so far. A switch keeps the cache's contents. Objects in the old design's entry stage go to the new design's small stage, and all others to its main. Counters, hit times and the newest ghost entries are kept.</p>
+  <figure class="diagram" aria-label="Timeline of one run">
+    <svg viewBox="0 0 780 130" role="img" aria-labelledby="dg2-title">
+      <title id="dg2-title">A trace is split into 40 windows. During the first 8 (20%), S3-FIFO serves the live cache. At the takeover the selector's leader takes over, re-chosen at each window. Only the last 32 windows are scored. Miniature simulations run on a 0.5% key sample from the first request.</title>
+      <text x="20" y="26" class="dg-s">S3-FIFO serves</text>
+      <text x="176" y="26" class="dg-s">the leader serves, re-chosen every window; only this 80% is scored</text>
+      <rect x="20" y="36" width="144" height="20" rx="4" class="dg-seg-a"/>
+      <rect x="166" y="36" width="574" height="20" rx="4" class="dg-seg-b"/>
+      <g id="dg2-ticks"></g>
+      <path d="M165,30 V66" class="dg-arrow"/>
+      <text x="165" y="82" class="dg-m" text-anchor="middle">takeover at 20%</text>
+      <text x="20" y="82" class="dg-m">window 0</text>
+      <text x="740" y="82" class="dg-m" text-anchor="end">window 39</text>
+      <path d="M20,100 H736" class="dg-arrow" marker-end="url(#ah)"/>
+      <text x="20" y="120" class="dg-m">miniature simulations of all 32 candidates on 0.5% of the keys, from the first request</text>
+    </svg>
+  </figure>
+</section>
+
+<section id="protocol">
+  <h2>Protocol</h2>
+  <ul>
+    <li><strong>Workloads.</strong> Whole real traces of 10M–50M requests each, with unit object size. Each trace gets 4 cache sizes, from 0.1% to 25% of its distinct objects. <em>Train</em>: 25 traces, 100 cells. <em>Held-out</em>: 22 traces, 88 cells, from traces and sources disjoint from training. No choice was ever made on held-out.</li>
+    <li><strong>Deployment.</strong> S3-FIFO serves the first 20% of each trace. The policy then takes over S3-FIFO's live cache, with no restart. The score is the change in misses against S3-FIFO on the last 80%.</li>
+    <li><strong>Comparison.</strong> 3L-Cache is a learned policy and the strongest published one on these traces. It runs on the whole trace from the start, an advantage over v1.</li>
+    <li><strong>No leakage.</strong> Agents only ever see anonymous cells: no trace names, sources or other identifiers. Each held-out test was registered before it ran and was run once.</li>
+  </ul>
+</section>
+
+<section id="results">
+  <h2>Results</h2>
+
+  <figure class="chart" id="fig-size">
+    <p class="title">By cache size, v1 leads in the middle; the extremes are mixed</p>
+    <p class="sub">Mean fewer misses than S3-FIFO, by cache size as a share of the trace's distinct objects. On held-out traces, 3L-Cache leads at the largest caches; on training traces, at the smallest.</p>
+    <div class="controls" role="group" aria-label="Trace set">
+      <button type="button" data-view="heldout" aria-pressed="true">Held-out</button>
+      <button type="button" data-view="train" aria-pressed="false">Train (5-fold CV)</button>
+    </div>
+    <div class="legend-slot"></div>
+    <div class="plot"></div>
+    <div class="table-slot"></div>
+  </figure>
+
+  <div class="pair">
+    <figure class="chart" id="fig-choose">
+      <p class="title">Choosing the design is the bottleneck, not the design space</p>
+      <p class="sub">Train, 426 designs, each run at full size. Picking one design per workload from the first 20% leaves much of the hindsight gain behind. Re-choosing online recovers most of it.</p>
+      <div class="plot"></div>
+      <div class="table-slot"></div>
+    </figure>
+    <figure class="chart" id="fig-online">
+      <p class="title">Re-choosing online beats choosing once, for every candidate set</p>
+      <p class="sub">Held-out, live cache, decisions from miniature simulations. Online adds 0.85–1.1 points.</p>
+      <div class="legend-slot"></div>
+      <div class="plot"></div>
+      <div class="table-slot"></div>
+    </figure>
+  </div>
+
+  <div class="pair">
+    <figure class="chart" id="fig-portfolio">
+      <p class="title">32 designs are about as good as all of them</p>
+      <p class="sub">Train, 5-fold cross-validation by trace, idealized switching. Designs are added greedily, starting from S3-FIFO.</p>
+      <div class="plot"></div>
+      <div class="table-slot"></div>
+    </figure>
+    <figure class="chart" id="fig-takeover">
+      <p class="title">Take over late, and switch without hesitation</p>
+      <p class="sub">Train, live cache. Taking over at 20% beats running the selector from window 4, and any switching margin (hysteresis) loses.</p>
+      <div class="legend-slot"></div>
+      <div class="plot"></div>
+      <div class="table-slot"></div>
+    </figure>
+  </div>
+</section>
+
+<section id="findings">
+  <h2>Findings</h2>
+  <div class="pair">
+    <figure class="chart" id="fig-ghost">
+      <p class="title">Longer history hurts, at every cache size</p>
+      <p class="sub">Train. Best fixed design per cell when ghost hits enter main, by ghost size; 0.9× is S3-FIFO's default.</p>
+      <div class="legend-slot"></div>
+      <div class="plot"></div>
+      <div class="table-slot"></div>
+    </figure>
+    <figure class="chart" id="fig-boards">
+      <p class="title">Architect boards saturate after two generations</p>
+      <p class="sub">Train. The board's pool, scored as a per-workload pick after the takeover. A fourth generation optimizing the online objective moved its portfolio only from 5.08% to 5.11%.</p>
+      <div class="plot"></div>
+      <div class="table-slot"></div>
+    </figure>
+  </div>
+
+  <ol class="findings">
+    <li><strong>Choosing is the bottleneck, not the design space.</strong> Per workload, the best of 426 designs in hindsight gets 5.03% fewer misses; picking one from the first 20% gets 3.81%. Re-choosing online closes most of the gap: 4.59% (idealized) on train, 4.03% on held-out.</li>
+    <li><strong>Online beats static for every candidate set,</strong> by 0.85–1.1 points on held-out.</li>
+    <li><strong>No hysteresis.</strong> Requiring a 1% or 3% lead before switching loses (3.85% and 3.73%, against 3.94% with no margin).</li>
+    <li><strong>Take over late.</strong> Running the selector from window 4 instead of taking over at 20% loses 0.8 points: the early choice is noisy, and S3-FIFO is a safe default meanwhile.</li>
+    <li><strong>Switching costs about 0.65 points.</strong> That is the gap when the idealized schedule is replayed on a live cache. Of three ways to hand over the cache's contents, mapping by stage is best (4.51%, against 4.12% by counter and 4.39% all to main).</li>
+    <li><strong>A miniature simulation needs 100–200 objects.</strong> With no floor, decisions fall apart (2.70%); a floor of 1,000 buys nothing over 200.</li>
+    <li><strong>Longer history hurts.</strong> Ghosts of 2–16× the cache, with ghost hits admitted to main, are worse at every cache size, monotonically.</li>
+    <li><strong>The architects' findings agree with the literature.</strong> A ghost hit must re-enter main; re-entering a stage that feeds the ghost loops (+5% to +25% misses). Counters deeper than 2 bits buy nothing. Age-guided refusal of reinsertion is a clean negative, and so is delayed reinsertion in main. A two-step probation does not beat a single small queue. Families with catastrophic members poison per-workload choice.</li>
+    <li><strong>Agent designs transfer to held-out workloads.</strong> As candidates, the 84 designs the board chose (64 written by agents) beat the 426 seeds on held-out: 3.72% against 3.31% mean, 1.81% against 1.29% median. Within the memory limit they add 0.24 points to v1's mean and 0.67 to its median.</li>
+    <li><strong>Boards saturate.</strong> More designs from the same space no longer help, under either objective. The next gain needs a new mechanism, not more search.</li>
+  </ol>
+</section>
+
+<section id="costs">
+  <h2>Costs</h2>
+  <h3>Memory</h3>
+  <p>A single design uses 1.0–1.66× S3-FIFO's metadata. The selector adds 32 miniature caches of max(0.5% of C, 200) objects each. Measured in the sandbox, v1 uses <strong>1.61×</strong> S3-FIFO's memory at C = 50,000 objects and <strong>3.20×</strong> at C = 5,000. So it fits a 2× budget from about 20,000 objects up. Below that, the fixed floor of 32 × 200 objects dominates; storing miniature-cache and ghost entries as fingerprints would cut it.</p>
+  <h3>CPU</h3>
+  <p>v1 costs about what 3L-Cache costs. It is cheaper only at large caches. At small ones, the 200-object floor makes its 32 sampled simulations as expensive as 3L-Cache's model, or more. Each policy is measured against S3-FIFO in its own simulator.</p>
+  <div id="cpu-table"></div>
+</section>
+
+<section id="status">
+  <h2>Status and caveats</h2>
+  <ul>
+    <li><strong>Not yet a clear win.</strong> Our bar for releasing v1 as better than 3L-Cache: on held-out, beat it on the mean, on the median and on at least two-thirds of the traces, twice. v1 meets the first two and wins 12 of 22 traces.</li>
+    <li><strong>Held-out reuse.</strong> The held-out suite has served four tests, each fixed before it ran: the idealized bound, the seeds-only portfolio, the candidate sets and v1. Reporting the best of them is mild selection. A fresh suite of long traces is being prepared for the deciding test.</li>
+    <li><strong>Unit object size only.</strong> Size-aware variants are next; 3L-Cache gains more with real sizes, so that bar will be harder.</li>
+    <li><strong>Windows.</strong> Evaluation windows are 1/40 of each trace. On a live cache, v1 re-chooses every 500,000 requests instead.</li>
+    <li><strong>Protocol asymmetry.</strong> 3L-Cache runs from the start of each trace; v1 takes over at 20%.</li>
+  </ul>
+  <h3>Next</h3>
+  <ol>
+    <li>The deciding test on a fresh suite of long traces.</li>
+    <li>A new mechanism for the caches where 3L-Cache wins: reuse-distance-aware admission rather than more history.</li>
+    <li>A C port of the selector for libCacheSim, and size-aware variants.</li>
+  </ol>
+</section>
+
+<section id="reproduce">
+  <h2>Reproduce</h2>
+  <p>The policy is <code>OnlineV1</code> in <code>src/vista/benchmarks/cachelab/sandbox/vq.py</code>. Its 32 candidates are in <code>scripts/vqsim/v1/portfolio.json</code>, and the logs behind every number on this page are in <code>scripts/vqsim/v1/logs/</code>. The full write-up is <code>docs/cachelab-v1.md</code>.</p>
+<pre><code>cc -O2 -o vqsim scripts/vqsim/vqsim.c
+# suites: dense ids + baselines per trace
+python scripts/vqsim/study/vq_prepare.py ...
+# greedy portfolio (idealized; cv = 5-fold by trace)
+python scripts/vqsim/study/vq_portfolio.py &lt;suite&gt; &lt;tag&gt; 32 r1,bp [cv]
+# the deployable selector on a live cache (32 candidates, 0.5% sample, floor 200)
+python scripts/vqsim/study/vq_portfolio_real.py &lt;suite&gt; &lt;portfolio.json&gt; &lt;tag&gt; &lt;workers&gt; 32:0.005:200
+# architects on a shared board
+vista --profile cachelab run --role architect --board B --vq-suite S --vqsim V --objective {static,online}
+# this page's data
+python scripts/cachelab_site.py</code></pre>
+</section>
+
+<footer>
+  <p>CacheLab is part of VISTA. Version 1, frozen 2026-11-17. Every number on this page is read from the committed v1 logs by <code>scripts/cachelab_site.py</code>, except the ghost-depth, board and memory figures, which are taken from <code>docs/cachelab-v1.md</code>.</p>
+</footer>
+</main>
+
+<script>
+  // 40 window separators on the timeline diagram (static, so it renders before the charts).
+  (() => {
+    const g = document.getElementById("dg2-ticks");
+    for (let i = 1; i < 40; i++) {
+      if (i === 8) continue;
+      const x = 20 + i * 18;
+      const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      l.setAttribute("x1", x); l.setAttribute("x2", x); l.setAttribute("y1", 36); l.setAttribute("y2", 56);
+      l.setAttribute("class", "dg-tick");
+      g.appendChild(l);
+    }
+  })();
+</script>
+<script src="data.js"></script>
+<script src="charts.js"></script>
+</body>
+</html>

@@ -121,6 +121,7 @@ class CacheLabSession:
             "view_handover": self._view_handover,
             "view_knobs": self._view_knobs,
             "view_headroom": self._view_headroom,
+            "view_mrc": self._view_mrc,
             "view_workload": self._view_workload,
             "view_positions": self._view_positions,
             "query_events": self._query_events,
@@ -283,6 +284,13 @@ class CacheLabSession:
         except LabError as exc:
             return ToolReply(str(exc), success=False)
         return self._reply("headroom", view)
+
+    def _view_mrc(self, arguments: dict[str, Any]) -> ToolReply:
+        try:
+            view = self.lab.mrc_view(arguments["trace"], arguments["capacity"], arguments.get("experiment"), visual=self.visual)
+        except LabError as exc:
+            return ToolReply(str(exc), success=False)
+        return self._reply("mrc", view)
 
     def _view_opt(self, arguments: dict[str, Any]) -> ToolReply:
         view = self.lab.opt_view(

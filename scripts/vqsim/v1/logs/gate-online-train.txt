@@ -1,0 +1,11 @@
+train-long: 100 cells; online selector, windows 8-39, change vs S3-FIFO; twins: 32 both, 32 filter
+  arm                     mean  median    <0.5%   0.5-2%     2-8%     >=8%  3L leads  switches
+  v1 (32)               -4.51%  -1.46%   -3.63%   -4.07%   -4.92%   -6.00%    -6.54%       1.8
+  v1 + both twins (64)  -4.56%  -1.43%   -4.51%   -4.13%   -4.74%   -5.22%    -7.50%       2.2
+  v1 + filter twins (64)  -4.59%  -1.46%   -4.11%   -4.12%   -4.90%   -5.70%    -6.99%       2.3
+  v1 cross-validated    -4.20%  -1.40%   -3.38%   -3.85%   -4.69%   -5.14%    -5.61%
+  3L-Cache              -2.64%  -0.02%   -3.72%   -2.90%   -2.49%   -0.57%    -9.81%
+  v1: better than v1 in 0 cells, worse in 0 (largest gain +0.00 pt, largest loss +0.00 pt); beats 3L-Cache on 19 of 25 traces
+  v1 + both twins: better than v1 in 8 cells, worse in 12 (largest gain -16.11 pt, largest loss +5.68 pt); beats 3L-Cache on 18 of 25 traces
+  v1 + filter twins: better than v1 in 9 cells, worse in 8 (largest gain -7.58 pt, largest loss +2.17 pt); beats 3L-Cache on 19 of 25 traces
+done Wed Nov 18 11:36:02 AM MST 2026

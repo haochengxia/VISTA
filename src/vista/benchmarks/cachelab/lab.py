@@ -1243,6 +1243,118 @@ class Lab:
         summary = {name: round(row["overall"], 5) for name, row in rows.items()}
         return View("\n".join(lines), png, {"headroom": summary, "factors": factors, "crossing": round(crossing, 1)})
 
+    MRC_SCALES = (0.125, 0.25, 0.5, 0.71, 1.0, 1.41, 2.0, 4.0, 8.0)  # cache sizes, in multiples of C
+    MRC_ALGORITHMS = ("S3-FIFO", "LRU", "Belady")
+
+    def mrc(self, trace: str, capacity: int) -> dict[str, Any]:
+        """Miss-ratio curves around one cell: libCacheSim's S3-FIFO (the same algorithm as
+        ours, miss for miss), LRU and Belady at MRC_SCALES x C on the observed trace, from
+        a cold cache, counting misses after the handover point (the part experiments
+        change). Exact, not sampled; cached per size with the other zoo runs."""
+        from . import zoo
+
+        workload, index = self.trace(trace), self.index(trace)
+        n, split = workload.requests, handover_index(workload.requests, self.handover)
+        objects = int(index.unique.size)
+        sizes = sorted({min(objects, max(1, round(scale * capacity))) for scale in self.MRC_SCALES} | {capacity})
+        workers = getattr(self.store.sandbox, "workers", 1) or 1
+        try:
+            results = zoo.suffix_miss_ratios(index.keys, split, sizes, self.root / "zoo-observed", algorithms=self.MRC_ALGORITHMS, workers=min(workers, len(sizes) * len(self.MRC_ALGORITHMS)))
+        except ImportError as exc:
+            raise LabError("view_mrc needs libCacheSim, which this lab does not have") from exc
+        curves = {}
+        for algorithm in self.MRC_ALGORITHMS:
+            failed = [results[size][algorithm]["error"] for size in sizes if "error" in results[size][algorithm]]
+            if failed:
+                raise LabError(f"the {algorithm} curve failed: {failed[0]}")
+            curves[algorithm] = np.array([results[size][algorithm]["misses"] - results[size][algorithm]["prefix_misses"] for size in sizes], dtype=np.int64)
+        return {"sizes": np.array(sizes, dtype=np.int64), "split": split, "scored": n - split, "objects": objects, "curves": curves}
+
+    @staticmethod
+    def equivalent_size(sizes: np.ndarray, misses: np.ndarray, target: float) -> float | None:
+        """The cache size at which a curve reaches `target` misses, interpolated linearly
+        in log size on the curve's non-increasing envelope; None outside the sizes shown."""
+        envelope = np.minimum.accumulate(misses.astype(float))
+        if target > envelope[0] or target < envelope[-1]:
+            return None
+        i = int(np.argmax(envelope <= target))
+        if i == 0 or envelope[i] == target:
+            return float(sizes[i])
+        hi, lo = envelope[i - 1], envelope[i]
+        share = (hi - target) / (hi - lo)
+        return float(np.exp(np.log(sizes[i - 1]) + share * (np.log(sizes[i]) - np.log(sizes[i - 1]))))
+
+    def mrc_view(self, trace: str, capacity: int, experiment: str | None = None, *, visual: bool = True) -> View:
+        """How much cache a policy is worth on one cell: S3-FIFO's, LRU's and OPT's
+        miss-ratio curves, and the size at which S3-FIFO would match a policy; free."""
+        capacity = self.capacity(trace, capacity)
+        data = self.mrc(trace, capacity)
+        sizes, split, scored, curves = data["sizes"], data["split"], data["scored"], data["curves"]
+        at = int(np.flatnonzero(sizes == capacity)[0])
+        s3 = curves["S3-FIFO"]
+        def worth(misses: float) -> str:
+            size = self.equivalent_size(sizes, s3, misses)
+            if size is None:
+                return f"outside {sizes[0] / capacity:g}-{sizes[-1] / capacity:g} C" if misses > 0 else "no misses"
+            return f"{size / capacity:.2f} C ({size:,.0f} objects)"
+        points: dict[str, dict[str, Any]] = {}
+        for algorithm, label in (("LRU", "LRU"), ("Belady", "OPT")):
+            misses = int(curves[algorithm][at])
+            points[label] = {"misses": misses, "change": (misses - int(s3[at])) / int(s3[at]) if s3[at] else 0.0, "equivalent": self.equivalent_size(sizes, s3, misses), "worth": worth(misses)}
+        if experiment is not None:
+            run = self.experiment(experiment).run(trace, capacity)
+            misses = int((run.outcome[split:] != HIT).sum())
+            points[experiment] = {"misses": misses, "change": (misses - int(s3[at])) / int(s3[at]) if s3[at] else 0.0, "equivalent": self.equivalent_size(sizes, s3, misses), "worth": worth(misses)}
+        base = self.experiment(BASELINE).run(trace, capacity)
+        own = int((base.outcome[split:] != HIT).sum())
+        ratio = {algorithm: values / max(1, scored) for algorithm, values in curves.items()}
+        drops = [(float(s3[i] - s3[i + 1]) / s3[i] if s3[i] else 0.0, i) for i in range(len(sizes) - 1)]
+        steepest, where = max(drops)
+        def scaled(scale: float) -> int | None:
+            hit = np.flatnonzero(sizes == max(1, round(scale * capacity)))
+            return int(hit[0]) if hit.size else None
+        half, double = scaled(0.5), scaled(2.0)
+        start_text = f"after request {split:,} (where experiments take over)" if split else "over the whole trace"
+        lines = [
+            f"miss-ratio curves on {trace} around C={capacity}: S3-FIFO, LRU and OPT (Belady, which knows the future) at "
+            f"{len(sizes)} cache sizes from {sizes[0] / capacity:g} C to {sizes[-1] / capacity:g} C, each from a cold cache over the "
+            f"observed trace, counting the {scored:,} requests {start_text}; {data['objects']:,} distinct objects. Exact runs "
+            "(libCacheSim; its S3-FIFO is the same algorithm as the lab's).",
+            "An equivalent size says how much cache a policy is worth: the size at which S3-FIFO would miss as often "
+            "(interpolated in log size). A policy worth 1.3 C does what 30% more cache would do for S3-FIFO; OPT's equivalent "
+            "size bounds what any policy could be worth here. Where the S3-FIFO curve is flat, extra cache (and a better "
+            "policy) buys little; a steep drop between two sizes is a working set just larger than the smaller one.",
+            "size (x C) / objects / miss ratio S3-FIFO / LRU / OPT:",
+        ]
+        for i, size in enumerate(sizes.tolist()):
+            lines.append(f"  {size / capacity:6.3g} C {size:>10,}  {ratio['S3-FIFO'][i]:.4f}  {ratio['LRU'][i]:.4f}  {ratio['Belady'][i]:.4f}")
+        if double is not None or half is not None:
+            parts = []
+            if half is not None and s3[at]:
+                parts.append(f"half the cache {_pct((int(s3[half]) - int(s3[at])) / int(s3[at]))}")
+            if double is not None and s3[at]:
+                parts.append(f"twice the cache {_pct((int(s3[double]) - int(s3[at])) / int(s3[at]))}")
+            lines.append("S3-FIFO misses vs C: " + ", ".join(parts))
+        lines.append(f"steepest S3-FIFO drop: {_pct(-steepest)} from {sizes[where] / capacity:g} C to {sizes[where + 1] / capacity:g} C")
+        for label, point in points.items():
+            lines.append(f"{label} at C: {point['misses']:,} misses, {_pct(point['change'])} vs S3-FIFO; equivalent S3-FIFO size {point['worth']}")
+        if own != int(s3[at]):
+            lines.append(f"note: the lab's S3-FIFO misses {own:,} at C after the handover, libCacheSim's {int(s3[at]):,} from a cold cache")
+        png = None
+        if visual:
+            marks = {label: (point["misses"] / max(1, scored), point["equivalent"]) for label, point in points.items() if label not in ("LRU", "OPT")}
+            png = views.render_mrc(
+                {"sizes": sizes, "capacity": capacity, "ratio": ratio, "marks": marks, "opt_equivalent": points["OPT"]["equivalent"]},
+                title=f"Miss-ratio curves on {trace} around C={capacity:,}",
+                subtitle=f"misses on requests {split:,}–{split + scored:,} from a cold cache; equivalent size = where S3-FIFO's curve reaches a policy's misses",
+            )
+        summary = {
+            "sizes": sizes.tolist(),
+            "miss_ratio": {algorithm: [round(float(v), 6) for v in values] for algorithm, values in ratio.items()},
+            "equivalent": {label: (None if point["equivalent"] is None else round(point["equivalent"] / capacity, 4)) for label, point in points.items()},
+        }
+        return View("\n".join(lines), png, {"mrc": summary})
+
     def events(self, identity: str, trace: str, capacity: int, start: int | None, end: int | None, *, key: int | None = None, kinds: list[str] | None = None, limit: int = 100) -> View:
         run = self.experiment(identity).run(trace, self.capacity(trace, capacity))
         first, stop = self.window(trace, start, end)

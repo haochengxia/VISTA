@@ -1,0 +1,7 @@
+C engine (scripts/vqsim/vqonline.h) bytes allocated, relative to S3-FIFO in the same engine; synthetic trace: 5M requests, zipf(1.05) over 2M keys + 15% one-hit scans (numpy seed 2).
+S3-FIFO = vqonline with only the S3-FIFO config and start beyond the trace. v1 = OnlineV1 defaults (32 candidates, 0.5%, floor 200). ghost-capped = portfolio-ghostcap.json, same selector.
+  C=   1000  S3-FIFO    0.13 MB | v1 9.12x (live 1.59x + selector 7.54x) | ghost-capped 7.90x (live 0.95x + selector 6.95x)
+  C=   5000  S3-FIFO    0.77 MB | v1 2.45x (live 1.23x + selector 1.22x) | ghost-capped 2.13x (live 1.00x + selector 1.13x)
+  C=  20000  S3-FIFO    3.09 MB | v1 1.53x (live 1.23x + selector 0.31x) | ghost-capped 1.31x (live 1.03x + selector 0.28x)
+  C=  50000  S3-FIFO    6.93 MB | v1 1.99x (live 1.83x + selector 0.16x) | ghost-capped 1.17x (live 1.03x + selector 0.14x)
+  C= 200000  S3-FIFO   27.70 MB | v1 1.99x (live 1.83x + selector 0.15x) | ghost-capped 1.14x (live 1.00x + selector 0.14x)

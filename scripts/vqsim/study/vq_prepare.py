@@ -14,7 +14,7 @@ for spec in load_suite(suite):
     _, dense = np.unique(task.full.keys(), return_inverse=True)
     dense.astype(np.uint32).tofile(d / "ids.u32")
     rows = rep["rows"]; s3 = {r["capacity"]: r["s3fifo"] for r in rows}
-    meta = {"requests": int(dense.size), "split": rep["split"], "capacities": [r["capacity"] for r in rows],
+    meta = {"requests": int(dense.size), "objects": int(dense.max()) + 1, "split": rep["split"], "capacities": [r["capacity"] for r in rows],
             "s3fifo": s3, "3L": {r["capacity"]: r["published"]["3L-Cache"] for r in rows},
             "best": {r["capacity"]: [r["best_published"], r["best_published_miss_ratio"]] for r in rows},
             "tuned": {r["capacity"]: r["prefix_tuned_s3fifo"] for r in rows}}

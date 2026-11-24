@@ -26,207 +26,24 @@
  *               M objects -> stage `amain` (default the last), counters kept (capped; 0 if the stage
  *               does not count), the ghost's newest entries kept.
  *   until=N     stop after N requests (e.g. the observed prefix only); windows then split [0, N).
+ *   gate=G      TinyLFU-style admission into stage G (vqcore.h; not in vqonline.h yet): a
+ *               frequency sketch compares objects with G's tail object. gmode=0 (default) rescues
+ *               objects leaving the cache from other stages, gmode=1 filters promotions into G,
+ *               gmode=2 does both; gwin=W halves the sketch every W*C requests (default 10).
+ *   rd=X        reuse-distance rule (vqcore.h, VQ_RD; vqsim only): a move up is refused when the object's
+ *               predicted wait for its next request is over X times the residence time of the stage it
+ *               would enter. rdmode (bitmask, default 3): 1 promotions, 2 reinsertions, 4 ghost admission
+ *               (a long gap enters `entry` instead of `gentry`), 8 rescue (a near object moves up anyway).
+ *               With rd, a handover keeps the objects' access times (shifted to the new clock).
+ *   Online takeover=3 (VQ_RD): switches merge the objects bound for amain by when they entered their stage.
  * Output per job: <misses before split> <misses after split> <window misses...>
  */
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#define MAXK 8
-typedef struct { double size, delay, age; int count, promote, up, onup, down, feeds; } Stage;
-typedef struct { int k, maxf, entry, overflow, gentry, gfreq, handover, asmall, amain; uint64_t until; double ghost; Stage st[MAXK]; } Config;
-
-/* All per-object state in one 16-byte record: a request touches one cache line. */
-typedef struct { uint32_t gstamp, counted, touched; int8_t stage; uint8_t freq; uint16_t pad; } Obj;
-
-static int parse(const char *s, Config *c) {
-    memset(c, 0, sizeof *c);
-    c->maxf = 3; c->entry = 0; c->overflow = -1; c->gentry = -1; c->gfreq = 0; c->ghost = 0.9; c->asmall = -1; c->amain = -1;
-    char buf[4096]; strncpy(buf, s, sizeof buf - 1); buf[sizeof buf - 1] = 0;
-    for (char *tok = strtok(buf, " \t\n"); tok; tok = strtok(NULL, " \t\n")) {
-        if (!strncmp(tok, "st=", 3)) {
-            if (c->k >= MAXK) return -1;
-            Stage *x = &c->st[c->k++];
-            if (sscanf(tok + 3, "%lf,%d,%d,%d,%d,%d,%d,%lf,%lf", &x->size, &x->count, &x->promote, &x->up, &x->onup, &x->down, &x->feeds, &x->delay, &x->age) < 7) return -1;
-        } else if (!strncmp(tok, "maxf=", 5)) c->maxf = atoi(tok + 5);
-        else if (!strncmp(tok, "entry=", 6)) c->entry = atoi(tok + 6);
-        else if (!strncmp(tok, "overflow=", 9)) c->overflow = atoi(tok + 9);
-        else if (!strncmp(tok, "ghost=", 6)) c->ghost = atof(tok + 6);
-        else if (!strncmp(tok, "gentry=", 7)) c->gentry = atoi(tok + 7);
-        else if (!strncmp(tok, "gfreq=", 6)) c->gfreq = atoi(tok + 6);
-        else if (!strncmp(tok, "handover=", 9)) c->handover = atoi(tok + 9);
-        else if (!strncmp(tok, "asmall=", 7)) c->asmall = atoi(tok + 7);
-        else if (!strncmp(tok, "amain=", 6)) c->amain = atoi(tok + 6);
-        else if (!strncmp(tok, "until=", 6)) c->until = strtoull(tok + 6, NULL, 10);
-        else return -1;
-    }
-    if (c->k < 1 || c->maxf < 1 || c->maxf > 15 || c->ghost < 0) return -1;
-    if (c->overflow < 0) c->overflow = c->k - 1;
-    if (c->gentry < 0) c->gentry = c->k - 1;
-    if (c->asmall < 0) c->asmall = c->entry;
-    if (c->amain < 0) c->amain = c->k - 1;
-    for (int i = 0; i < c->k; i++) {
-        Stage *x = &c->st[i];
-        if (x->up < 0 || x->up >= c->k || x->down >= c->k || x->down < -1 || x->onup < 0 || x->onup > 3) return -1;
-        if (x->up == i && x->onup == 1 && x->promote > 0) return -1; /* reinsertion must lower the counter */
-    }
-    if (c->entry >= c->k || c->overflow >= c->k || c->gentry >= c->k || c->asmall >= c->k || c->amain >= c->k) return -1;
-    /* Moves that need no hit and keep the counter (a demotion, a pass with promote 0, a promotion
-     * with onup=keep) must not form a cycle, or objects could circle without ever leaving. */
-    int edge[MAXK][MAXK] = {{0}};
-    for (int i = 0; i < c->k; i++) {
-        const Stage *x = &c->st[i];
-        if (x->down >= 0) edge[i][x->down] = 1;
-        if (x->up != i && (x->promote == 0 || x->onup == 1)) edge[i][x->up] = 1;
-    }
-    for (int m = 0; m < c->k; m++) for (int i = 0; i < c->k; i++) for (int j = 0; j < c->k; j++) if (edge[i][m] && edge[m][j]) edge[i][j] = 1;
-    for (int i = 0; i < c->k; i++) if (edge[i][i]) return -1;
-    return 0;
-}
-
-typedef struct { uint32_t *buf; uint64_t head, tail, cap; } Ring; /* push at head, pop at tail */
-static void rpush(Ring *r, uint32_t v) { r->buf[r->head++ % r->cap] = v; }
-static uint32_t rpop(Ring *r) { return r->buf[r->tail++ % r->cap]; }
-static uint64_t rlen(const Ring *r) { return r->head - r->tail; }
-static uint32_t rat(const Ring *r, uint64_t i) { return r->buf[(r->tail + i) % r->cap]; } /* i-th from the tail */
-
-typedef struct {
-    const Config *c; uint64_t capacity, target[MAXK], delay[MAXK], age[MAXK], gcap, glive, resident;
-    uint32_t clock, gnum; int evicted, k;
-    Ring q[MAXK], g; uint32_t *gseq; /* ghost ring of keys, and each slot's entry number */
-} Sim;
-
-static void sim_init(Sim *s, const Config *c, uint64_t capacity) {
-    memset(s, 0, sizeof *s);
-    s->c = c; s->k = c->k; s->capacity = capacity;
-    double used = 0;
-    for (int i = 0; i < c->k; i++) {
-        s->q[i].cap = capacity + 1; s->q[i].buf = malloc(s->q[i].cap * sizeof(uint32_t));
-        if (i < c->k - 1) { s->target[i] = (uint64_t)(capacity * c->st[i].size); used += (double)s->target[i]; }
-        s->delay[i] = (uint64_t)(c->st[i].delay * capacity); s->age[i] = (uint64_t)(c->st[i].age * capacity);
-    }
-    s->target[c->k - 1] = capacity > (uint64_t)used ? capacity - (uint64_t)used : 0;
-    s->gcap = (uint64_t)(capacity * c->ghost);
-    s->g.cap = 2 * s->gcap + 16; s->g.buf = malloc(s->g.cap * sizeof(uint32_t)); s->gseq = malloc(s->g.cap * sizeof(uint32_t));
-}
-
-static void sim_free(Sim *s) {
-    for (int i = 0; i < s->k; i++) free(s->q[i].buf);
-    free(s->g.buf); free(s->gseq);
-}
-
-static void ghost_add(Sim *s, Obj *o, uint32_t y) {
-    Ring *g = &s->g;
-    while (s->glive >= s->gcap) { uint64_t pos = g->tail; uint32_t z = rpop(g); if (o[z].gstamp == s->gseq[pos % g->cap] + 1) { o[z].gstamp = 0; s->glive--; } }
-    if (rlen(g) >= g->cap) { /* compact stale entries */
-        uint64_t w = 0, len = rlen(g); uint32_t *nb = malloc(g->cap * sizeof(uint32_t)), *ns = malloc(g->cap * sizeof(uint32_t));
-        for (uint64_t i = 0; i < len; i++) { uint64_t pos = (g->tail + i) % g->cap; uint32_t z = g->buf[pos]; if (o[z].gstamp == s->gseq[pos] + 1) { nb[w] = z; ns[w] = s->gseq[pos]; w++; } }
-        free(g->buf); free(s->gseq); g->buf = nb; s->gseq = ns; g->tail = 0; g->head = w;
-    }
-    s->gseq[g->head % g->cap] = s->gnum; o[y].gstamp = s->gnum + 1; s->gnum++; rpush(g, y); s->glive++;
-}
-
-static int pick(const Sim *s) {
-    for (int i = 0; i < s->k; i++) if (rlen(&s->q[i]) >= s->target[i] && rlen(&s->q[i]) > 0) return i;
-    for (int i = 0; i < s->k; i++) if (rlen(&s->q[i]) > 0) return i;
-    return -1;
-}
-
-static void evict_one(Sim *s, Obj *o) {
-    const Config *c = s->c;
-    s->evicted = 1;
-    int k = pick(s);
-    int64_t guard = 4 * (int64_t)s->capacity + 16; /* a design whose moves cycle without hits is cut short */
-    for (;;) {
-        if (rlen(&s->q[k]) == 0) k = pick(s); /* this stage drained without an eviction: pick again */
-        uint32_t y = rpop(&s->q[k]);
-        const Stage *st = &c->st[k];
-        Obj *p = &o[y];
-        int f = p->freq;
-        guard--;
-        if (guard >= 0) {
-            int idle = s->age[k] && s->clock - p->touched >= s->age[k];
-            if (f >= st->promote && !idle && !(st->promote == 0 && st->up == k)) {
-                int to = st->up;
-                if (st->onup == 0) p->freq = 0; else if (st->onup == 2) p->freq = f > 0 ? f - 1 : 0; else if (st->onup == 3) p->freq = f >> 1;
-                p->stage = (int8_t)to; rpush(&s->q[to], y);
-                continue;
-            }
-            if (st->down >= 0) { /* demotion: the receiving stage may now be over its target, pick again */
-                p->stage = (int8_t)st->down; rpush(&s->q[st->down], y);
-                k = pick(s);
-                continue;
-            }
-        }
-        p->stage = -1; p->freq = 0; s->resident--; /* leave the cache */
-        if (st->feeds && s->gcap > 0 && !p->gstamp) ghost_add(s, o, y);
-        return;
-    }
-}
-
-/* One request; returns 1 on a miss. */
-static inline int step(Sim *s, Obj *o, uint32_t x) {
-    const Config *c = s->c;
-    Obj *p = &o[x];
-    if (p->stage >= 0) { /* hit */
-        int sx = p->stage;
-        if (c->st[sx].count && p->freq < c->maxf && (!s->delay[sx] || s->clock - p->counted > s->delay[sx])) { p->freq++; p->counted = s->clock; }
-        p->touched = s->clock;
-        return 0;
-    }
-    int ghost_hit = 0;
-    if (p->gstamp) { p->gstamp = 0; s->glive--; ghost_hit = 1; }
-    if (s->capacity == 0) return 1;
-    while (s->resident >= s->capacity) evict_one(s, o);
-    int to = ghost_hit ? c->gentry : c->entry;
-    if (!ghost_hit && !s->evicted && rlen(&s->q[to]) >= s->target[to]) to = c->overflow;
-    p->stage = (int8_t)to; p->freq = ghost_hit ? (uint8_t)c->gfreq : 0; rpush(&s->q[to], x); s->resident++;
-    s->clock++; p->counted = p->touched = s->clock;
-    return 1;
-}
-
-/* Online mode only: where a takeover puts the old cache's objects. 0 = by stage (objects of the
- * old entry stage to asmall, all others to amain); 1 = by counter (objects hit since they entered
- * or last moved to amain, the others to asmall); 2 = all to amain. Modes 1 and 2 place the old
- * stages from the last to the first, so the old main's objects end up oldest. */
-static int takeover = 0;
-static int takeover_to(const Config *c, int from_entry, int freq) {
-    if (takeover == 1) return freq > 0 ? c->amain : c->asmall;
-    if (takeover == 2) return c->amain;
-    return from_entry ? c->asmall : c->amain;
-}
-
-/* The design in `b` takes over S3-FIFO's live cache in `a` (vq.py's adopt). */
-static void adopt(Sim *b, const Sim *a, Obj *o) {
-    const Config *c = b->c;
-    for (int k = 0; k < 2; k++) {
-        int src = takeover ? 1 - k : k;
-        for (uint64_t i = 0; i < rlen(&a->q[src]); i++) {
-            uint32_t y = rat(&a->q[src], i);
-            Obj *p = &o[y];
-            int to = takeover_to(c, src == 0, p->freq);
-            p->stage = (int8_t)to; p->freq = c->st[to].count ? (uint8_t)(p->freq < c->maxf ? p->freq : c->maxf) : 0;
-            p->counted = p->touched = 0;
-            rpush(&b->q[to], y);
-        }
-    }
-    b->resident = a->resident; b->evicted = a->evicted; b->clock = 0;
-    uint64_t live = 0, len = rlen(&a->g); /* the incumbent's ghost, oldest first; keep the newest gcap */
-    for (uint64_t i = 0; i < len; i++) { uint64_t pos = (a->g.tail + i) % a->g.cap; if (o[a->g.buf[pos]].gstamp == a->gseq[pos] + 1) live++; }
-    uint64_t drop = live > b->gcap ? live - b->gcap : 0, seen = 0;
-    for (uint64_t i = 0; i < len; i++) {
-        uint64_t pos = (a->g.tail + i) % a->g.cap; uint32_t z = a->g.buf[pos];
-        if (o[z].gstamp != a->gseq[pos] + 1) continue;
-        o[z].gstamp = 0;
-        if (seen++ >= drop) { b->gseq[b->g.head % b->g.cap] = b->gnum; o[z].gstamp = b->gnum + 1; b->gnum++; rpush(&b->g, z); b->glive++; }
-    }
-}
-
-static const char *S3_DEFAULT = "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0";
+#define VQ_RD
+#include "vqcore.h"
 
 /* The incumbent's state at the split, kept for consecutive handover jobs of the same cell. */
 static struct { uint64_t capacity, split; Obj *o; Sim sim; Config cfg; uint64_t before; uint64_t *win; int windows; int valid; } snap;
@@ -260,7 +77,10 @@ static void run(const uint32_t *ids, uint64_t n, uint32_t n_obj, uint64_t capaci
         for (uint32_t i = 0; i < n_obj; i++) { o[i] = (Obj){0}; o[i].stage = -1; }
         sim_init(&s, c, capacity);
     }
+    VQSketch sk = {0}; /* gate: fed every request from the start (the prefix too) */
+    if (c->gate >= 0) { sk_init(&sk, capacity, c->gwin); for (uint64_t t = 0; t < t0; t++) sk_add(&sk, ids[t]); s.sk = &sk; }
     for (uint64_t t = t0; t < end; t++) {
+        if (s.sk) sk_add(s.sk, ids[t]);
         if (step(&s, o, ids[t])) {
             if (t < split) before++; else after++;
             if (windows > 0) win[(t * (uint64_t)windows) / end]++;
@@ -269,7 +89,7 @@ static void run(const uint32_t *ids, uint64_t n, uint32_t n_obj, uint64_t capaci
     fprintf(out, "%lu %lu", (unsigned long)before, (unsigned long)after);
     for (int w = 0; w < windows; w++) fprintf(out, " %lu", (unsigned long)win[w]);
     fputc('\n', out);
-    free(win); sim_free(&s);
+    free(win); sim_free(&s); sk_free(&sk);
 }
 
 /* -- online re-choice: the live cache switches design while it runs ----------------------------
@@ -291,37 +111,126 @@ static void run(const uint32_t *ids, uint64_t n, uint32_t n_obj, uint64_t capaci
  * A switch is a takeover between designs: objects of the old entry stage go to the new design's
  * asmall stage, all others to its amain stage (stage by stage, tail first), counters capped (0 in
  * a stage that does not count), hit times kept, the ghost's newest entries kept.
+ * Gated candidates (gate=, which must share gwin) consult one frequency sketch fed every request
+ * from the start (the live cache, whatever its design) and one fed the sampled requests (the
+ * miniatures, sized to the miniature cache).
+ * Pool screening (pool=FILE screen=M, miniatures only, not with start or a schedule): the selector also logs
+ * the sampled requests of the prefix; at the split it replays that log through a miniature of every design
+ * in FILE (one config per line; designs equal to a candidate are skipped), one at a time, and adds the M
+ * with the fewest sampled misses from window 2 on (ties to the earlier line) as candidates K..K+M-1, warm,
+ * before the split's choice. Gated pool designs must share the candidates' gwin.
+ * logcap=N bounds the log to the last N sampled requests. If the prefix had more, the replay of those N
+ * scores everyone alike: the first quarter warms the miniature up, misses after it count; the given
+ * candidates are replayed too (for their score only), and the leader is then chosen by that score plus
+ * the sampled misses from the split's window on. wrapmode=1 instead keeps the given candidates' history
+ * (the leader rule from window 2, as with a full log) and gives each screened design the given leader's
+ * per-window misses before the split's window scaled by (its replay score + 1) / (that leader's + 1).
+ * trial=H (miniatures only, not with start or a schedule): switches are tried before they are made. A miniature
+ * mirror of the live cache runs on the sampled requests from the start and takes over whenever the live cache does
+ * (S3-FIFO, then the same designs at the same points), so it carries the live cache's path. It is snapshotted at the
+ * last H decision points (before the split: H, ..., 1 window lengths before it). When the leader differs from the
+ * live design, the oldest snapshot is replayed through the sampled requests since then as if the live cache had
+ * switched to the leader there; the switch goes ahead only if that replay has fewer misses than the mirror had.
+ * trialsplit=0: the first takeover (from S3-FIFO) is not tried, only the switches between designs after it.
+ * reseed=1 (miniatures only, not with start or a schedule): at the split, after its choice, every miniature takes over
+ * the mirror's cache (S3-FIFO's, sampled) as the live cache takes over S3-FIFO's, so from the split on each candidate's
+ * sampled misses include what taking over costs it; the leader rule is unchanged.
+ * replay=L (not with trial or reseed): the live cache logs its last L*C requests; at a takeover the next design
+ * rebuilds its own state by replaying them and is reconciled with what is cached (replay_takeover), instead of the
+ * stage mapping. VQSIM_CHECK=1 checks the live records after each takeover.
  * Output: <misses before split> <misses after split> <switches> <window misses...> */
 
-static void switch_design(Sim *b, const Sim *a, Obj *o) {
-    const Config *c = b->c;
-    for (int k = 0; k < a->k; k++) {
-        int i = takeover ? a->k - 1 - k : k;
-        for (uint64_t j = 0; j < rlen(&a->q[i]); j++) {
-            uint32_t y = rat(&a->q[i], j);
-            Obj *p = &o[y];
-            int to = takeover_to(c, i == a->c->entry, p->freq);
-            p->stage = (int8_t)to; p->freq = c->st[to].count ? (uint8_t)(p->freq < c->maxf ? p->freq : c->maxf) : 0;
-            rpush(&b->q[to], y);
+/* Replays the logged sampled prefix (`kept` entries of a ring of `cap` slots, the oldest at `first`) through a
+ * fresh miniature of `c` (state left in *s and o). Full log: every miss is added to win[its window]. Wrapped log:
+ * misses of entries from offset `from` on, before window `wsplit` to *prior, in it to win[wsplit]. A gated design
+ * gets its own sketch fed the same sampled requests, so a full replay ends equal to the shared miniature sketch;
+ * the caller keeps the shared one. */
+static void replay_prefix(const Config *c, uint64_t mcap, uint32_t n_s, const uint32_t *lid, const uint8_t *lw, uint64_t cap,
+                          uint64_t first, uint64_t kept, int wrapped, int wsplit, double gwin, Sim *s, Obj *o, uint64_t *win, uint64_t *prior) {
+    for (uint32_t x = 0; x < n_s; x++) { o[x] = (Obj){0}; o[x].stage = -1; }
+    sim_init(s, c, mcap);
+    VQSketch tsk = {0};
+    if (c->gate >= 0) { sk_init(&tsk, mcap, gwin); s->sk = &tsk; }
+    uint64_t from = wrapped ? kept / 4 : 0;
+    for (uint64_t l = 0; l < kept; l++) {
+        uint64_t j = (first + l) % cap;
+        if (s->sk) sk_add(s->sk, lid[j]);
+        if (step(s, o, lid[j]) && l >= from) {
+            if (!wrapped || lw[j] >= wsplit) win[lw[j]]++; else (*prior)++;
         }
     }
-    b->resident = a->resident; b->evicted = a->evicted; b->clock = a->clock;
-    uint64_t live = 0, len = rlen(&a->g);
-    for (uint64_t i = 0; i < len; i++) { uint64_t pos = (a->g.tail + i) % a->g.cap; if (o[a->g.buf[pos]].gstamp == a->gseq[pos] + 1) live++; }
-    uint64_t drop = live > b->gcap ? live - b->gcap : 0, seen = 0;
-    for (uint64_t i = 0; i < len; i++) {
-        uint64_t pos = (a->g.tail + i) % a->g.cap; uint32_t z = a->g.buf[pos];
-        if (o[z].gstamp != a->gseq[pos] + 1) continue;
-        o[z].gstamp = 0;
-        if (seen++ >= drop) { b->gseq[b->g.head % b->g.cap] = b->gnum; o[z].gstamp = b->gnum + 1; b->gnum++; rpush(&b->g, z); b->glive++; }
-    }
+    sk_free(&tsk); s->sk = NULL;
 }
 
-static uint64_t mix64(uint64_t x) { x += 0x9E3779B97F4A7C15ull; x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull; x = (x ^ (x >> 27)) * 0x94D049BB133111EBull; return x ^ (x >> 31); }
+
+/* A deep copy of s into d (d's buffers are not freed). */
+static void sim_copy(Sim *d, const Sim *s) {
+    *d = *s;
+    for (int i = 0; i < s->k; i++) { d->q[i].buf = malloc(s->q[i].cap * sizeof(uint32_t)); memcpy(d->q[i].buf, s->q[i].buf, s->q[i].cap * sizeof(uint32_t)); }
+    d->g.buf = malloc(s->g.cap * sizeof(uint32_t)); memcpy(d->g.buf, s->g.buf, s->g.cap * sizeof(uint32_t));
+    d->gseq = malloc(s->g.cap * sizeof(uint32_t)); memcpy(d->gseq, s->gseq, s->g.cap * sizeof(uint32_t));
+}
+/* replay takeover (online replay=L): the next design rebuilds its own state from the last L*C requests (`rl`, a ring of
+ * `rlcap` ids, `rln` pushed so far) through a fresh instance with scratch records `ro` (all clear on entry and exit),
+ * then it is reconciled with what is cached: replayed objects that are not cached go to its ghost (after the replay's
+ * own uncached ghost entries), and cached objects it did not keep go to the old end of asmall (from the old entry
+ * stage) or amain with counter 0. Its clock and the kept objects' times are the replay's. */
+static void replay_takeover(Sim *live, Obj *o, const Config *D, const uint32_t *rl, uint64_t rlcap, uint64_t rln, Obj *ro) {
+    uint64_t cap = live->capacity, kept = rln < rlcap ? rln : rlcap, first = rln < rlcap ? 0 : rln % rlcap;
+    Sim b; sim_init(&b, D, cap); b.sk = live->sk;
+    for (uint64_t l = 0; l < kept; l++) step(&b, ro, rl[(first + l) % rlcap]);
+    for (uint64_t i = 0, len = rlen(&live->g); i < len; i++) { /* the old ghost is dropped */
+        uint64_t pos = (live->g.tail + i) % live->g.cap; uint32_t z = live->g.buf[pos];
+        if (o[z].gstamp == live->gseq[pos] + 1) o[z].gstamp = 0;
+    }
+    Sim nw; sim_init(&nw, D, cap); nw.sk = live->sk;
+    for (int i = 0; i < live->k; i++) /* cached, not kept by the replay: oldest, counter 0 */
+        for (uint64_t j = 0; j < rlen(&live->q[i]); j++) {
+            uint32_t y = rat(&live->q[i], j);
+            if (ro[y].stage >= 0) continue;
+            int to = i == live->c->entry ? D->asmall : D->amain;
+            Obj *p = &o[y]; p->stage = (int8_t)to; p->freq = 0; p->counted = p->touched = 0; p->gstamp = 0;
+#ifdef VQ_RD
+            p->gap = VQ_NOGAP; p->pushed = 0; p->rescued = 0;
+#endif
+            rpush(&nw.q[to], y);
+        }
+    uint32_t *drop = malloc((cap + 1) * sizeof *drop); uint64_t nd = 0;
+    for (int i = 0; i < b.k; i++) /* the replay's cached objects, in its order */
+        for (uint64_t j = 0; j < rlen(&b.q[i]); j++) {
+            uint32_t y = rat(&b.q[i], j);
+            if (o[y].stage >= 0) { /* cached: kept with the replay's record */
+                Obj keep = ro[y]; keep.gstamp = 0; o[y] = keep; rpush(&nw.q[i], y);
+            } else if (o[y].stage < 0) drop[nd++] = y;
+        }
+    for (uint64_t i = 0, len = rlen(&b.g); i < len; i++) { /* the replay's ghost, then what it held that is not cached */
+        uint64_t pos = (b.g.tail + i) % b.g.cap; uint32_t z = b.g.buf[pos];
+        if (ro[z].gstamp != b.gseq[pos] + 1 || o[z].stage >= 0 || nw.gcap == 0) continue;
+        o[z].touched = ro[z].touched; o[z].gstamp = 0; ghost_add(&nw, o, z);
+    }
+    for (uint64_t i = 0; i < nd && nw.gcap > 0; i++) { uint32_t z = drop[i]; o[z].touched = ro[z].touched; o[z].gstamp = 0; ghost_add(&nw, o, z); }
+    free(drop);
+    nw.resident = live->resident; nw.evicted = live->evicted; nw.clock = b.clock;
+    memcpy(nw.res, b.res, sizeof nw.res);
+    for (uint64_t l = 0; l < kept; l++) { uint32_t y = rl[(first + l) % rlcap]; ro[y] = (Obj){0}; ro[y].stage = -1; }
+    sim_free(&b); sim_free(live); *live = nw;
+}
+/* VQSIM_CHECK: the live cache's records agree with its queues and ghost */
+static void check_live(const Sim *s, const Obj *o, uint32_t n_obj) {
+    uint64_t res = 0;
+    for (int i = 0; i < s->k; i++) for (uint64_t j = 0; j < rlen(&s->q[i]); j++) { uint32_t y = rat(&s->q[i], j); res++; if (o[y].stage != i) fprintf(stderr, "check failed: stage\n"); }
+    if (res != s->resident) fprintf(stderr, "check failed: resident %lu %lu\n", (unsigned long)res, (unsigned long)s->resident);
+    uint64_t gl = 0, inr = 0; for (uint32_t y = 0; y < n_obj; y++) { if (o[y].stage >= 0) inr++; if (o[y].gstamp) gl++; }
+    if (inr != res) fprintf(stderr, "check failed: records %lu %lu\n", (unsigned long)inr, (unsigned long)res);
+    if (gl != s->glive) fprintf(stderr, "check failed: ghost %lu %lu\n", (unsigned long)gl, (unsigned long)s->glive);
+}
+/* trial: the live mirror at a decision point; `off` is its first request in the trial buffer, `miss` the mirror's misses before it */
+typedef struct { Sim s; Obj *o; VQSketch sk; uint64_t off, miss; int cur; } Snap;
 
 static void run_online(const uint32_t *ids, uint64_t n, uint32_t n_obj, char *head, char **cfgs, int K, Obj *o, FILE *out) {
     unsigned long capacity, split; int windows, off = 0;
     double rate = 0.01, margin = 0; uint64_t min_mini = 1000; int sched_w[256], sched_c[256], ns = 0, start = -1, horizon = 0;
+    char pool_path[4096] = ""; int screen = 0, wrapmode = 0, trial = 0, trialsplit = 1, reseed = 0; double replay = 0; uint64_t logcap = 0;
     takeover = 0;
     if (sscanf(head, "online %lu %lu %d %n", &capacity, &split, &windows, &off) < 3 || windows < 9 || K < 1) { fprintf(out, "error bad-online\n"); return; }
     for (char *tok = strtok(head + off, " \t\n"); tok; tok = strtok(NULL, " \t\n")) {
@@ -331,6 +240,14 @@ static void run_online(const uint32_t *ids, uint64_t n, uint32_t n_obj, char *he
         else if (!strncmp(tok, "start=", 6)) start = atoi(tok + 6);
         else if (!strncmp(tok, "horizon=", 8)) horizon = atoi(tok + 8);
         else if (!strncmp(tok, "takeover=", 9)) takeover = atoi(tok + 9);
+        else if (!strncmp(tok, "pool=", 5)) { strncpy(pool_path, tok + 5, sizeof pool_path - 1); }
+        else if (!strncmp(tok, "screen=", 7)) screen = atoi(tok + 7);
+        else if (!strncmp(tok, "logcap=", 7)) logcap = strtoull(tok + 7, NULL, 10);
+        else if (!strncmp(tok, "wrapmode=", 9)) wrapmode = atoi(tok + 9);
+        else if (!strncmp(tok, "trial=", 6)) trial = atoi(tok + 6);
+        else if (!strncmp(tok, "trialsplit=", 11)) trialsplit = atoi(tok + 11);
+        else if (!strncmp(tok, "reseed=", 7)) reseed = atoi(tok + 7);
+        else if (!strncmp(tok, "replay=", 7)) replay = atof(tok + 7);
         else if (!strncmp(tok, "schedule=", 9)) {
             for (char *q = tok + 9; *q && ns < 256;) {
                 int w, i, used = 0;
@@ -340,33 +257,124 @@ static void run_online(const uint32_t *ids, uint64_t n, uint32_t n_obj, char *he
             }
         } else { fprintf(out, "error bad-online\n"); return; }
     }
-    Config *cand = calloc(K, sizeof(Config));
-    for (int i = 0; i < K; i++) if (parse(cfgs[i], &cand[i])) { fprintf(out, "error bad-config %d\n", i); free(cand); return; }
-    for (int i = 0; i < ns; i++) if (sched_c[i] < 0 || sched_c[i] >= K) { fprintf(out, "error bad-online\n"); free(cand); return; }
+    /* the pool to screen at the split (its designs equal to a candidate dropped) */
+    Config *pcfg = NULL; int P = 0, *pline = NULL, fl = -1; /* pline: each kept pool design's line in FILE (diagnostics) */
+    if (screen > 0 && (ns || start >= 0 || !pool_path[0] || windows > 255)) { fprintf(out, "error bad-online\n"); return; }
+    if (trial < 0 || trial > 64 || ((trial > 0 || reseed) && (ns || start >= 0)) || replay < 0 || (replay > 0 && (trial || reseed))) { fprintf(out, "error bad-online\n"); return; }
+    if (screen > 0) {
+        FILE *pf = fopen(pool_path, "r"); if (!pf) { fprintf(out, "error bad-pool\n"); return; }
+        char pl[8192];
+        while (fgets(pl, sizeof pl, pf)) {
+            fl++; size_t L = strlen(pl); while (L && (pl[L - 1] == '\n' || pl[L - 1] == ' ' || pl[L - 1] == '\r')) pl[--L] = 0;
+            if (!L) continue;
+            int dup = 0;
+            for (int i = 0; i < K && !dup; i++) { size_t m = strlen(cfgs[i]); while (m && (cfgs[i][m - 1] == '\n' || cfgs[i][m - 1] == ' ' || cfgs[i][m - 1] == '\r')) m--; dup = m == L && !strncmp(cfgs[i], pl, L); }
+            if (dup) continue;
+            pcfg = realloc(pcfg, (P + 1) * sizeof(Config)); pline = realloc(pline, (P + 1) * sizeof(int)); pline[P] = fl;
+            if (parse(pl, &pcfg[P])) { fprintf(out, "error bad-pool %d\n", P); fclose(pf); free(pcfg); return; }
+            P++;
+        }
+        fclose(pf);
+        if (screen > P) screen = P;
+    }
+    int K0 = K, KM = K + screen; /* candidates 0..K0-1 given; K0..KM-1 screened from the pool at the split */
+    Config *cand = calloc(KM, sizeof(Config));
+    double gwin = 0; /* gated candidates share one sketch of the request stream (live) and one of the sample (miniatures) */
+    for (int i = 0; i < K; i++) {
+        if (parse(cfgs[i], &cand[i]) || (cand[i].gate >= 0 && gwin > 0 && cand[i].gwin != gwin)) { fprintf(out, "error bad-config %d\n", i); free(cand); free(pcfg); return; }
+        if (cand[i].gate >= 0) gwin = cand[i].gwin;
+    }
+    for (int j = 0; j < P; j++) {
+        if (pcfg[j].gate >= 0 && gwin > 0 && pcfg[j].gwin != gwin) { fprintf(out, "error bad-pool %d\n", j); free(cand); free(pcfg); return; }
+        if (pcfg[j].gate >= 0) gwin = pcfg[j].gwin;
+    }
+    for (int i = 0; i < ns; i++) if (sched_c[i] < 0 || sched_c[i] >= K) { fprintf(out, "error bad-online\n"); free(cand); free(pcfg); return; }
     /* miniature simulations (none with a schedule) */
     int mini = ns == 0;
     double r = rate; if (mini && r * capacity < (double)min_mini) r = (double)min_mini / (double)capacity; if (r > 1) r = 1;
     int32_t *smap = NULL; uint32_t n_s = 0; Obj **mo = NULL; Sim *ms = NULL; uint64_t *mwin = NULL;
     uint64_t mcap = (uint64_t)(r * capacity + 0.5); if (mcap < 1) mcap = 1;
+    VQSketch lsk = {0}, msk = {0};
+    if (gwin > 0) { sk_init(&lsk, capacity, gwin); if (mini) sk_init(&msk, mcap, gwin); }
     if (mini) {
         smap = malloc((uint64_t)n_obj * sizeof(int32_t));
         uint64_t limit = (uint64_t)(r * 18446744073709551615.0);
         for (uint32_t x = 0; x < n_obj; x++) smap[x] = (r >= 1 || mix64(x) <= limit) ? (int32_t)n_s++ : -1;
-        mo = malloc(K * sizeof(Obj *)); ms = malloc(K * sizeof(Sim)); mwin = calloc((uint64_t)K * windows, sizeof(uint64_t));
+        mo = malloc(KM * sizeof(Obj *)); ms = malloc(KM * sizeof(Sim)); mwin = calloc((uint64_t)KM * windows, sizeof(uint64_t));
         for (int i = 0; i < K; i++) {
             mo[i] = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj));
             for (uint32_t x = 0; x < n_s; x++) { mo[i][x] = (Obj){0}; mo[i][x].stage = -1; }
             sim_init(&ms[i], &cand[i], mcap);
+            if (gwin > 0) ms[i].sk = &msk;
         }
     }
     Config s3; parse(S3_DEFAULT, &s3);
     for (uint32_t i = 0; i < n_obj; i++) { o[i] = (Obj){0}; o[i].stage = -1; }
     Sim live; sim_init(&live, &s3, capacity);
+    if (gwin > 0) live.sk = &lsk;
     int current = -1, switches = 0, next_sched = 0;
+    uint64_t rlcap = replay > 0 ? (uint64_t)(replay * (double)capacity) : 0, rln = 0; /* replay: the request log and scratch records */
+    if (replay > 0 && rlcap < 1) rlcap = 1;
+    uint32_t *rl = rlcap ? malloc(rlcap * sizeof *rl) : NULL; Obj *ro = NULL;
+    if (rlcap) { ro = malloc((uint64_t)(n_obj ? n_obj : 1) * sizeof(Obj)); for (uint32_t x = 0; x < n_obj; x++) { ro[x] = (Obj){0}; ro[x].stage = -1; } }
+    /* trial: the live mirror (lm, lmo), its last `trial` snapshots, the sampled requests since the oldest (tb), a scratch replay */
+    Sim lm = {0}; Obj *lmo = NULL, *fo = NULL; Snap *snaps = NULL; int nsn = 0; VQSketch fsk = {0};
+    uint32_t *tb = NULL; uint64_t tbn = 0, tbcap = 0, lm_miss = 0, wl = n / windows ? n / windows : 1;
+    int lmon = trial || reseed; /* the mirror runs */
+    if (lmon) {
+        lmo = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj));
+        for (uint32_t x = 0; x < n_s; x++) { lmo[x] = (Obj){0}; lmo[x].stage = -1; }
+        sim_init(&lm, &s3, mcap); if (gwin > 0) lm.sk = &msk;
+    }
+    if (trial) {
+        fo = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj)); if (gwin > 0) sk_init(&fsk, mcap, gwin);
+        snaps = calloc(trial, sizeof(Snap));
+    }
     uint64_t before = 0, after = 0, *win = calloc(windows, sizeof(uint64_t));
     int w_prev = -1;
+    uint32_t *lid = NULL; uint8_t *lw = NULL; uint64_t nl = 0, lcap = 0; /* screening: the sampled prefix (a ring if logcap) */
+    if (screen > 0 && logcap > 0) { lcap = logcap; lid = malloc(lcap * sizeof *lid); lw = malloc(lcap); }
+    uint64_t *prior = calloc(KM, sizeof(uint64_t)); int wlo = 2; /* wrapped log: the leader's score is prior + misses from window wlo */
     for (uint64_t t = 0; t < n; t++) {
         int w = (int)((t * (uint64_t)windows) / n);
+        if (screen > 0 && t == split) { /* score every pool design on the logged prefix, keep the best `screen` warm */
+            uint64_t *score = malloc((uint64_t)(P ? P : 1) * sizeof(uint64_t)), *tw = calloc(windows, sizeof(uint64_t));
+            Obj *to = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj)); Sim tmp;
+            int wrapped = logcap > 0 && nl > logcap;
+            uint64_t kept = wrapped ? logcap : nl, first = wrapped ? nl % logcap : 0, rcap = lcap ? lcap : 1;
+            if (wrapped && !wrapmode) wlo = w;
+            for (int j = 0; j < P; j++) {
+                memset(tw, 0, windows * sizeof(uint64_t)); uint64_t pr = 0;
+                replay_prefix(&pcfg[j], mcap, n_s, lid, lw, rcap, first, kept, wrapped, w, gwin, &tmp, to, tw, &pr); sim_free(&tmp);
+                score[j] = pr; for (int v = wlo; v <= w; v++) score[j] += tw[v];
+            }
+            int lead0 = 0; uint64_t lead_score = 0; /* wrapmode 1: the given leader so far, and its replay score */
+            if (wrapped && !wrapmode) for (int i = 0; i < K0; i++) { /* the given candidates: scored on the same replay, state kept */
+                memset(tw, 0, windows * sizeof(uint64_t));
+                replay_prefix(&cand[i], mcap, n_s, lid, lw, rcap, first, kept, wrapped, w, gwin, &tmp, to, tw, &prior[i]); sim_free(&tmp);
+            }
+            if (wrapped && wrapmode) {
+                uint64_t best = UINT64_MAX;
+                for (int i = 0; i < K0; i++) { uint64_t m = 0; for (int v = 2; v <= w; v++) m += mwin[(uint64_t)i * windows + v]; if (m < best) { best = m; lead0 = i; } }
+                memset(tw, 0, windows * sizeof(uint64_t));
+                replay_prefix(&cand[lead0], mcap, n_s, lid, lw, rcap, first, kept, wrapped, w, gwin, &tmp, to, tw, &lead_score); sim_free(&tmp);
+            }
+            char *taken = calloc(P ? P : 1, 1);
+            for (int m = 0; m < screen; m++) {
+                int bj = -1; for (int j = 0; j < P; j++) if (!taken[j] && (bj < 0 || score[j] < score[bj])) bj = j;
+                taken[bj] = 1; int i = K0 + m; cand[i] = pcfg[bj];
+                mo[i] = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj));
+                replay_prefix(&cand[i], mcap, n_s, lid, lw, rcap, first, kept, wrapped, w, gwin, &ms[i], mo[i], &mwin[(uint64_t)i * windows], &prior[i]);
+                if (wrapped && wrapmode) { /* history before the split's window: the given leader's, scaled */
+                    double rho = ((double)prior[i] + 1) / ((double)lead_score + 1); prior[i] = 0;
+                    for (int v = 0; v < w; v++) mwin[(uint64_t)i * windows + v] = (uint64_t)(rho * (double)mwin[(uint64_t)lead0 * windows + v] + 0.5);
+                }
+                if (gwin > 0) ms[i].sk = &msk;
+                if (getenv("VQSIM_SCREEN_LOG")) fprintf(stderr, "screen %d: pool line %d (after dedup), file line %d, %lu sampled misses\n", m, bj, pline[bj], (unsigned long)score[bj]);
+            }
+            K = KM;
+            free(score); free(tw); free(to); free(taken); free(lid); free(lw); lid = NULL; lw = NULL;
+        }
         int point = ns ? (t == split || w != w_prev)
                        : start >= 0 ? (w != w_prev && w >= start) : (t == split || (t > split && w != w_prev));
         if (point) { /* a decision point: the split, then each window start (a schedule may start earlier) */
@@ -377,31 +385,92 @@ static void run_online(const uint32_t *ids, uint64_t n, uint32_t n_obj, char *he
             } else { /* fewest sampled misses so far (from window 2, or over the last `horizon` windows) */
                 uint64_t best = UINT64_MAX, mine = UINT64_MAX;
                 int lo = horizon > 0 && w - horizon > 2 ? w - horizon : 2;
+                if (lo < wlo) lo = wlo;
                 for (int i = 0; i < K; i++) {
-                    uint64_t m = 0; for (int v = lo; v <= w; v++) m += mwin[(uint64_t)i * windows + v];
+                    uint64_t m = lo == wlo ? prior[i] : 0; for (int v = lo; v <= w; v++) m += mwin[(uint64_t)i * windows + v];
                     if (m < best) { best = m; leader = i; }
                     if (i == current) mine = m;
                 }
                 /* hysteresis: leave the current design only for a leader at least `margin` better */
                 if (current >= 0 && leader != current && (double)best >= (1.0 - margin) * (double)mine) leader = current;
+                if (getenv("VQSIM_TRACE")) fprintf(stderr, "decide w=%d live=%d leader=%d best=%lu live_score=%lu\n", w, current, leader, (unsigned long)best, (unsigned long)mine);
+            }
+            if (trial && leader >= 0 && leader != current && (current >= 0 || trialsplit)) { /* would switching at the oldest snapshot have beaten the mirror since? */
+                uint64_t h = 0, stay = 0; int pass = 0;
+                if (nsn > 0 && tbn > snaps[0].off) {
+                    Snap *p = &snaps[0];
+                    memcpy(fo, p->o, (uint64_t)n_s * sizeof(Obj));
+                    Sim F; sim_init(&F, &cand[leader], mcap);
+                    if (gwin > 0) { memcpy(fsk.t, p->sk.t, 4 * (fsk.mask + 1)); fsk.adds = p->sk.adds; F.sk = &fsk; }
+                    if (p->cur < 0) adopt(&F, &p->s, fo); else switch_design(&F, &p->s, fo);
+                    for (uint64_t l = p->off; l < tbn; l++) { if (gwin > 0) sk_add(&fsk, tb[l]); h += step(&F, fo, tb[l]) ? 1 : 0; }
+                    sim_free(&F);
+                    stay = lm_miss - p->miss; pass = h < stay;
+                }
+                if (getenv("VQSIM_TRACE")) fprintf(stderr, "trial w=%d live=%d leader=%d h=%lu stay=%lu pass=%d\n", w, current, leader, (unsigned long)h, (unsigned long)stay, pass);
+                if (!pass) leader = current;
+            }
+            if (reseed && t == split) /* every miniature takes over the mirror's cache (still S3-FIFO's) */
+                for (int i = 0; i < K; i++) {
+                    memcpy(mo[i], lmo, (uint64_t)n_s * sizeof(Obj));
+                    Sim b; sim_init(&b, &cand[i], mcap); b.sk = ms[i].sk;
+                    adopt(&b, &lm, mo[i]); sim_free(&ms[i]); ms[i] = b;
+                }
+            if (leader >= 0 && leader != current && rlcap) {
+                replay_takeover(&live, o, &cand[leader], rl, rlcap, rln, ro);
+                if (getenv("VQSIM_CHECK")) check_live(&live, o, n_obj);
+                if (current >= 0) switches++;
+                current = leader;
             }
             if (leader >= 0 && leader != current) {
-                Sim b; sim_init(&b, &cand[leader], capacity);
+                Sim b; sim_init(&b, &cand[leader], capacity); b.sk = live.sk;
                 if (current < 0) adopt(&b, &live, o); else switch_design(&b, &live, o);
+                if (lmon) { /* the mirror follows */
+                    Sim b2; sim_init(&b2, &cand[leader], mcap); b2.sk = lm.sk;
+                    if (current < 0) adopt(&b2, &lm, lmo); else switch_design(&b2, &lm, lmo);
+                    sim_free(&lm); lm = b2;
+                }
                 if (current >= 0) switches++;
                 sim_free(&live); live = b; current = leader;
             }
         }
+        if (trial && (point || (t < split && split - t <= (uint64_t)trial * wl && (split - t) % wl == 0))) { /* snapshot the mirror */
+            if (nsn == trial) { /* drop the oldest, and the requests only it needed */
+                sim_free(&snaps[0].s); free(snaps[0].o); free(snaps[0].sk.t);
+                memmove(snaps, snaps + 1, (uint64_t)(trial - 1) * sizeof(Snap)); nsn--;
+                uint64_t d = nsn ? snaps[0].off : tbn;
+                memmove(tb, tb + d, (tbn - d) * sizeof *tb); tbn -= d; for (int i = 0; i < nsn; i++) snaps[i].off -= d;
+            }
+            Snap *p = &snaps[nsn++];
+            sim_copy(&p->s, &lm); p->o = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj)); memcpy(p->o, lmo, (uint64_t)n_s * sizeof(Obj));
+            p->sk = msk; if (gwin > 0) { p->sk.t = malloc(4 * (msk.mask + 1)); memcpy(p->sk.t, msk.t, 4 * (msk.mask + 1)); } else p->sk.t = NULL;
+            p->off = tbn; p->miss = lm_miss; p->cur = current;
+        }
         w_prev = w;
         uint32_t x = ids[t];
+        if (gwin > 0) { sk_add(&lsk, x); if (mini && smap[x] >= 0) sk_add(&msk, (uint32_t)smap[x]); }
         if (step(&live, o, x)) { if (t < split) before++; else after++; win[w]++; }
+        if (rlcap) rl[rln++ % rlcap] = x;
         if (mini && smap[x] >= 0) for (int i = 0; i < K; i++) if (step(&ms[i], mo[i], (uint32_t)smap[x])) mwin[(uint64_t)i * windows + w]++;
+        if (lmon && smap[x] >= 0) {
+            uint32_t y = (uint32_t)smap[x];
+            if (step(&lm, lmo, y)) lm_miss++;
+            if (nsn > 0) { if (tbn == tbcap) { tbcap = tbcap ? 2 * tbcap : 4096; tb = realloc(tb, tbcap * sizeof *tb); } tb[tbn++] = y; }
+        }
+        if (screen > 0 && t < split && mini && smap[x] >= 0) {
+            if (!logcap && nl == lcap) { lcap = lcap ? 2 * lcap : 4096; lid = realloc(lid, lcap * sizeof *lid); lw = realloc(lw, lcap); }
+            lid[nl % lcap] = (uint32_t)smap[x]; lw[nl % lcap] = (uint8_t)w; nl++;
+        }
     }
+    free(lid); free(lw); free(pcfg); free(pline); free(prior);
     takeover = 0; /* handover jobs (run) keep the stage mapping */
     fprintf(out, "%lu %lu %d", (unsigned long)before, (unsigned long)after, switches);
     for (int w = 0; w < windows; w++) fprintf(out, " %lu", (unsigned long)win[w]);
     fputc('\n', out);
-    sim_free(&live); free(win);
+    sim_free(&live); free(win); sk_free(&lsk); sk_free(&msk);
+    if (lmon) { sim_free(&lm); free(lmo); }
+    free(rl); free(ro);
+    if (trial) { free(fo); for (int i = 0; i < nsn; i++) { sim_free(&snaps[i].s); free(snaps[i].o); free(snaps[i].sk.t); } free(snaps); free(tb); sk_free(&fsk); }
     if (mini) { for (int i = 0; i < K; i++) { free(mo[i]); sim_free(&ms[i]); } free(mo); free(ms); free(mwin); free(smap); }
     free(cand);
 }

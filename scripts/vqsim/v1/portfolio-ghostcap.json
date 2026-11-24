@@ -1,0 +1,204 @@
+{
+ "suite": "train-long",
+ "sources": [
+  "r1",
+  "bp"
+ ],
+ "portfolio": [
+  "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=7 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 asmall=0 amain=1 st=0.03,1,2,1,0,-1,1,1.0,0.0 st=0,1,1,1,2,-1,0,0.0,0.0",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 asmall=0 amain=2 st=0.15,0,0,1,0,-1,0,0.0,0.0 st=0.15,1,1,2,0,-1,1,0.0,0.0 st=0,1,1,2,2,-1,0,0.0,0.0",
+  "maxf=5 entry=0 overflow=4 ghost=0.5 gentry=1 gfreq=0 st=0.2,1,2,4,0,1,0 st=0.01,0,0,2,1,-1,0 st=0.2,0,0,4,1,-1,0 st=0.6,1,1,3,0,4,0 st=0,1,1,4,0,-1,0",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.025,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0",
+  "maxf=1 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 asmall=0 amain=1 st=0.3,1,2,1,0,-1,1,0.0,0.0 st=0,1,1,1,2,-1,0,1.0,0.0",
+  "maxf=7 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 asmall=0 amain=1 st=0.01,1,2,1,0,-1,1,1.0,0.0 st=0,1,2,1,2,-1,0,0.0,0.0",
+  "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.1,0,0,1,1,-1,0 st=0.1,1,2,2,0,-1,1 st=0,1,1,2,2,-1,0",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 asmall=0 amain=2 st=0.05,1,2,1,0,-1,1,0.0,0.0 st=0.1,1,1,2,0,-1,1,0.0,0.0 st=0,1,1,2,2,-1,0,0.0,0.0",
+  "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.2,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=0 gfreq=1 st=0.02,1,2,1,0,-1,1 st=0.02,1,2,3,0,2,0 st=0.05,1,1,3,0,-1,1 st=0,1,1,3,2,-1,0",
+  "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=0 gfreq=1 asmall=0 amain=1 st=0.05,1,2,1,0,-1,1,0.0,0.0 st=0,1,1,1,2,-1,0,0.0,0.0",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 st=0.1,1,2,1,0,-1,1 st=0.01,1,3,2,0,-1,1 st=0,1,1,2,2,-1,0",
+  "maxf=3 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 st=0.025,0,0,1,1,-1,0 st=0.025,1,1,2,0,-1,1 st=0,1,1,2,2,-1,0",
+  "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.05,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 asmall=0 amain=2 st=0.05,0,0,1,0,-1,0,0.0,0.0 st=0.12,1,1,2,0,-1,1,0.0,0.0 st=0,1,1,2,2,-1,0,1.0,0.0",
+  "maxf=2 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.02,1,2,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=1 entry=0 overflow=2 ghost=0.5 gentry=2 gfreq=0 asmall=0 amain=2 st=0.05,0,0,1,0,-1,0,0.0,0.0 st=0.15,1,1,2,0,-1,1,0.0,0.0 st=0,1,1,2,2,-1,0,0.0,0.0",
+  "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=0 st=0.05,0,0,1,1,-1,0 st=0.3,1,2,3,0,-1,1 st=0.15,1,2,3,0,-1,1 st=0,1,1,3,2,-1,1",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 asmall=0 amain=2 st=0.02,1,1,2,0,-1,1,1.0,0.0 st=0.15,1,1,2,0,-1,0,0.0,0.0 st=0,1,1,2,2,-1,0,0.0,0.0",
+  "maxf=7 entry=0 overflow=2 ghost=0.9 gentry=2 gfreq=0 asmall=0 amain=2 st=0.05,0,0,1,0,-1,0,0.0,0.0 st=0.03,1,2,2,0,-1,1,0.0,0.0 st=0,1,1,2,2,-1,0,0.0,0.0",
+  "maxf=7 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 asmall=0 amain=1 st=0.01,1,2,1,0,-1,1,0.0,0.0 st=0,1,2,1,2,-1,0,0.0,0.0",
+  "maxf=3 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.1,0,0,1,1,-1,0 st=0.05,1,1,2,1,2,0 st=0.01,0,0,3,1,-1,0 st=0,1,1,3,2,-1,0",
+  "maxf=3 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=0 asmall=0 amain=2 st=0.3,1,1,1,0,-1,1,0.0,0.0 st=0.15,1,1,2,0,-1,0,0.0,0.0 st=0,1,1,2,2,-1,0,0.0,0.0",
+  "maxf=2 entry=0 overflow=3 ghost=0.9 gentry=3 gfreq=1 st=0.1,1,2,1,0,-1,1 st=0.05,1,1,3,0,-1,1 st=0.6,1,1,2,0,3,0 st=0,1,1,2,0,-1,0",
+  "maxf=3 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 asmall=0 amain=1 st=0.05,1,1,1,0,-1,1,0.0,0.0 st=0,1,2,1,2,-1,0,0.0,0.0",
+  "maxf=5 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 st=0.3,1,1,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=5 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.1,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=2 entry=0 overflow=2 ghost=0.9 gentry=1 gfreq=1 st=0.2,1,3,2,0,-1,1 st=0.15,1,2,2,0,-1,1 st=0,1,1,2,3,-1,0",
+  "maxf=3 entry=0 overflow=1 ghost=0.9 gentry=1 gfreq=0 asmall=0 amain=1 st=0.03,1,2,1,0,-1,1,0.0,0.0 st=0,1,1,1,2,-1,0,1.0,0.0",
+  "maxf=2 entry=0 overflow=1 ghost=0.5 gentry=1 gfreq=0 st=0.02,1,3,1,0,-1,1 st=0,1,1,1,2,-1,0",
+  "maxf=3 entry=0 overflow=4 ghost=0.5 gentry=1 gfreq=0 st=0.3,1,2,4,0,-1,1 st=0.1,1,2,2,0,-1,1 st=0.02,1,2,3,0,-1,1 st=0.6,1,1,3,3,4,0 st=0,1,3,3,0,-1,0"
+ ],
+ "curve": [
+  {
+   "k": 1,
+   "mean": 0.0,
+   "median": 0.0
+  },
+  {
+   "k": 2,
+   "mean": -0.018585079064512053,
+   "median": 0.0
+  },
+  {
+   "k": 3,
+   "mean": -0.0335474956518111,
+   "median": -0.004696388379525805
+  },
+  {
+   "k": 4,
+   "mean": -0.03636792956633406,
+   "median": -0.004696388379525805
+  },
+  {
+   "k": 5,
+   "mean": -0.03847467257974242,
+   "median": -0.0112361791493098
+  },
+  {
+   "k": 6,
+   "mean": -0.04041843154348532,
+   "median": -0.0112361791493098
+  },
+  {
+   "k": 7,
+   "mean": -0.04228466096653857,
+   "median": -0.011718333400591367
+  },
+  {
+   "k": 8,
+   "mean": -0.04321335547636153,
+   "median": -0.011093994009470027
+  },
+  {
+   "k": 9,
+   "mean": -0.044056626557021764,
+   "median": -0.012271071310855083
+  },
+  {
+   "k": 10,
+   "mean": -0.04485169375285644,
+   "median": -0.013096573694033869
+  },
+  {
+   "k": 11,
+   "mean": -0.04583439793121369,
+   "median": -0.013096573694033869
+  },
+  {
+   "k": 12,
+   "mean": -0.04637719231574981,
+   "median": -0.013096573694033869
+  },
+  {
+   "k": 13,
+   "mean": -0.04683322431481626,
+   "median": -0.013476961159944411
+  },
+  {
+   "k": 14,
+   "mean": -0.04715693934526448,
+   "median": -0.013476961159944411
+  },
+  {
+   "k": 15,
+   "mean": -0.04740419959695635,
+   "median": -0.013476961159944411
+  },
+  {
+   "k": 16,
+   "mean": -0.047769700818411816,
+   "median": -0.014872834051401433
+  },
+  {
+   "k": 17,
+   "mean": -0.04800848539990188,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 18,
+   "mean": -0.04821072793840441,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 19,
+   "mean": -0.0484371833689228,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 20,
+   "mean": -0.04863372096534511,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 21,
+   "mean": -0.048819400474161216,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 22,
+   "mean": -0.04898513121696326,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 23,
+   "mean": -0.049126145656859556,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 24,
+   "mean": -0.04926355804746414,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 25,
+   "mean": -0.0493992893685646,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 26,
+   "mean": -0.049532171823362885,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 27,
+   "mean": -0.04962916841785115,
+   "median": -0.01516694016105032
+  },
+  {
+   "k": 28,
+   "mean": -0.04971903640545281,
+   "median": -0.016262593556075622
+  },
+  {
+   "k": 29,
+   "mean": -0.04979131876437699,
+   "median": -0.016262593556075622
+  },
+  {
+   "k": 30,
+   "mean": -0.049855119708027335,
+   "median": -0.017642084268440657
+  },
+  {
+   "k": 31,
+   "mean": -0.04991217164893933,
+   "median": -0.017642084268440657
+  },
+  {
+   "k": 32,
+   "mean": -0.04996245134163926,
+   "median": -0.017642084268440657
+  }
+ ],
+ "note": "Ghost-capped variant of the v1 portfolio (2026-11-18): the same greedy (r1 seeds + board picks, train-long, idealized), restricted to designs whose ghost is at most 0.9x the cache (S3-FIFO's). Not frozen, not tested on held-out."
+}

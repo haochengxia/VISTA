@@ -1,0 +1,32 @@
+# v2 study: the online selector losses (2026-11-22, train-long only, exact shadows, CV portfolios K=32)
+train-long: 100 cells; CV portfolio portfolio-r1bp-cv.json, K=32; windows 8-39 vs S3-FIFO; exact shadows
+  cold (idealized)           mean  -4.37%  median  -1.50%
+  handover (split paid)      mean  -4.24%  median  -1.46%
+  live (split + switches)    mean  -4.05%  median  -1.38%
+  split cost +0.13 pt, switch cost +0.19 pt (mean per cell); leader changes after the split: median 1, mean 1.6; cells with none 46
+  cells with no later switch (46): handover - cold +0.26 pt, live - handover +0.00 pt
+  first pick kept to the end, takeover vs cold: mean +0.36 pt, worst +11.72 pt
+  pick at the split and never switch: mean  -3.68%  median  -0.73%; better than live in 18 cells, worse in 31
+train-long: 100 cells; CV portfolio portfolio-r1bprd-cv.json, K=32; windows 8-39 vs S3-FIFO; exact shadows
+  cold (idealized)           mean  -5.01%  median  -1.60%
+  handover (split paid)      mean  -4.77%  median  -1.39%
+  live (split + switches)    mean  -4.59%  median  -1.29%
+  split cost +0.23 pt, switch cost +0.18 pt (mean per cell); leader changes after the split: median 1, mean 1.7; cells with none 45
+  cells with no later switch (45): handover - cold +0.30 pt, live - handover +0.00 pt
+  first pick kept to the end, takeover vs cold: mean +0.18 pt, worst +4.50 pt
+  pick at the split and never switch: mean  -4.22%  median  -0.78%; better than live in 15 cells, worse in 36
+
+# takeover=3 (merge by stage entry time at switches) vs 0, realistic selector
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bp-cv.json
+  K=32 r=0.005 min=200 m=0 t=0 mean  -4.20%  median  -1.40%  beats 3L 72/100  worse than S3-FIFO 10  traces beating 3L 19/25
+  K=32 r=0.005 min=200 m=0 t=3 mean  -4.20%  median  -1.31%  beats 3L 73/100  worse than S3-FIFO 10  traces beating 3L 19/25
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bprd-cv.json
+  K=32 r=0.005 min=200 m=0 t=0 mean  -4.44%  median  -1.14%  beats 3L 68/100  worse than S3-FIFO 14  traces beating 3L 17/25
+  K=32 r=0.005 min=200 m=0 t=3 mean  -4.45%  median  -1.12%  beats 3L 67/100  worse than S3-FIFO 13  traces beating 3L 17/25
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-v1rd-cv.json
+  K=48 r=0.005 min=200 m=0 t=0 mean  -4.62%  median  -1.43%  beats 3L 72/100  worse than S3-FIFO 9  traces beating 3L 19/25
+  K=48 r=0.005 min=200 m=0 t=3 mean  -4.62%  median  -1.26%  beats 3L 73/100  worse than S3-FIFO 10  traces beating 3L 19/25
+
+# exact shadows (rate 1), takeover=3 vs 0 (t=0: -4.05% v1 pool, -4.59% with rd twins)
+  K=32 r=1 min=200 m=0 t=3 mean  -4.05%  median  -1.28%  beats 3L 74/100  worse than S3-FIFO 12  traces beating 3L 19/25
+  K=32 r=1 min=200 m=0 t=3 mean  -4.56%  median  -1.14%  beats 3L 70/100  worse than S3-FIFO 11  traces beating 3L 18/25

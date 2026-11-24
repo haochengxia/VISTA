@@ -1,0 +1,98 @@
+# v2 study 2 (2026-11-22, train-long only): portfolios by 5-fold CV by trace, idealized then the realistic selector.
+# r1 = 426 seed designs, bp = 84 board picks (v1 pool), rd = 1095 ghost-admission twins (rd=0.5/1/2 rdmode=4).
+train-long: 100 cells with all of ['r1', 'bp']; 487 designs (5-fold CV by trace)
+  3L-Cache       mean  -2.64%  median  -0.02%  beats 3L 0/100  worse 47
+  all designs    mean  -4.94%  median  -2.04%  beats 3L 80/100  worse 6
+  K=2            mean  -0.56%  median  +0.00%  beats 3L 51/100  worse 9
+  K=4            mean  -3.26%  median  -0.33%  beats 3L 59/100  worse 15
+  K=6            mean  -3.62%  median  -0.61%  beats 3L 69/100  worse 16
+  K=8            mean  -4.07%  median  -1.38%  beats 3L 71/100  worse 12
+  K=12           mean  -4.08%  median  -1.30%  beats 3L 74/100  worse 11
+  K=16           mean  -4.14%  median  -1.31%  beats 3L 74/100  worse 11
+  K=24           mean  -4.27%  median  -1.46%  beats 3L 76/100  worse 6
+  K=32           mean  -4.37%  median  -1.50%  beats 3L 77/100  worse 6
+  K=48           mean  -4.56%  median  -1.72%  beats 3L 78/100  worse 7
+  K=64           mean  -4.58%  median  -1.76%  beats 3L 78/100  worse 6
+    size <0.5%   ( 22 cells): K=32  -3.46%  3L  -3.72%
+    size 0.5-2%  ( 31 cells): K=32  -3.98%  3L  -2.90%
+    size 2-8%    ( 34 cells): K=32  -5.04%  3L  -2.49%
+    size >=8%    ( 13 cells): K=32  -5.08%  3L  -0.57%
+train-long: 100 cells with all of ['r1', 'bp', 'rd']; 1582 designs (5-fold CV by trace)
+  3L-Cache       mean  -2.64%  median  -0.02%  beats 3L 0/100  worse 47
+  all designs    mean  -5.38%  median  -2.18%  beats 3L 82/100  worse 5
+  K=2            mean  -1.06%  median  +0.00%  beats 3L 54/100  worse 4
+  K=4            mean  -3.48%  median  -0.68%  beats 3L 69/100  worse 12
+  K=6            mean  -3.81%  median  -0.96%  beats 3L 71/100  worse 12
+  K=8            mean  -4.35%  median  -1.03%  beats 3L 72/100  worse 10
+  K=12           mean  -4.49%  median  -1.31%  beats 3L 69/100  worse 11
+  K=16           mean  -4.72%  median  -1.42%  beats 3L 70/100  worse 12
+  K=24           mean  -4.87%  median  -1.48%  beats 3L 74/100  worse 11
+  K=32           mean  -5.01%  median  -1.60%  beats 3L 77/100  worse 7
+  K=48           mean  -5.13%  median  -2.04%  beats 3L 80/100  worse 7
+  K=64           mean  -5.17%  median  -2.05%  beats 3L 80/100  worse 6
+    size <0.5%   ( 22 cells): K=32  -4.23%  3L  -3.72%
+    size 0.5-2%  ( 31 cells): K=32  -4.37%  3L  -2.90%
+    size 2-8%    ( 34 cells): K=32  -5.20%  3L  -2.49%
+    size >=8%    ( 13 cells): K=32  -7.35%  3L  -0.57%
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bp-cv.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47  traces beating 3L 0/25
+  K=32 r=0.005 min=200 m=0 t=0 mean  -4.20%  median  -1.40%  beats 3L 72/100  worse than S3-FIFO 10  traces beating 3L 19/25
+      switches median 1; selector entries / C: median 0.31, max 32.0
+    size <0.5%   ( 22 cells): 3L  -3.72%  v0:  -3.38%
+    size 0.5-2%  ( 31 cells): 3L  -2.90%  v0:  -3.85%
+    size 2-8%    ( 34 cells): 3L  -2.49%  v0:  -4.69%
+    size >=8%    ( 13 cells): 3L  -0.57%  v0:  -5.14%
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bprd-cv.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47  traces beating 3L 0/25
+  K=32 r=0.005 min=200 m=0 t=0 mean  -4.44%  median  -1.14%  beats 3L 68/100  worse than S3-FIFO 14  traces beating 3L 17/25
+      switches median 1; selector entries / C: median 0.31, max 32.0
+    size <0.5%   ( 22 cells): 3L  -3.72%  v0:  -4.06%
+    size 0.5-2%  ( 31 cells): 3L  -2.90%  v0:  -4.23%
+    size 2-8%    ( 34 cells): 3L  -2.49%  v0:  -4.65%
+    size >=8%    ( 13 cells): 3L  -0.57%  v0:  -5.02%
+
+# the same CV portfolios, realistic selector at other sample rates (r=1: exact shadows, real switching)
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bp-cv.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47  traces beating 3L 0/25
+  K=32 r=1 min=200 m=0 t=0 mean  -4.05%  median  -1.38%  beats 3L 73/100  worse than S3-FIFO 12  traces beating 3L 19/25
+  K=32 r=0.05 min=200 m=0 t=0 mean  -4.16%  median  -1.42%  beats 3L 74/100  worse than S3-FIFO 12  traces beating 3L 18/25
+  K=32 r=0.02 min=1000 m=0 t=0 mean  -4.16%  median  -1.41%  beats 3L 72/100  worse than S3-FIFO 10  traces beating 3L 19/25
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bprd-cv.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47  traces beating 3L 0/25
+  K=32 r=1 min=200 m=0 t=0 mean  -4.59%  median  -1.29%  beats 3L 71/100  worse than S3-FIFO 11  traces beating 3L 18/25
+  K=32 r=0.05 min=200 m=0 t=0 mean  -4.49%  median  -1.26%  beats 3L 70/100  worse than S3-FIFO 10  traces beating 3L 18/25
+  K=32 r=0.02 min=1000 m=0 t=0 mean  -4.49%  median  -1.17%  beats 3L 70/100  worse than S3-FIFO 11  traces beating 3L 17/25
+
+# v1 CV portfolio (first 32) extended greedily by 16 from v1 pool + rd twins (START=portfolio-r1bp-cv.json)
+train-long: 100 cells with all of ['r1', 'bp', 'rd']; 1582 designs (5-fold CV by trace)
+  3L-Cache       mean  -2.64%  median  -0.02%  beats 3L 0/100  worse 47
+  all designs    mean  -5.38%  median  -2.18%  beats 3L 82/100  worse 5
+  K=32           mean  -4.37%  median  -1.50%  beats 3L 77/100  worse 6
+  K=40           mean  -5.01%  median  -1.73%  beats 3L 78/100  worse 6
+  K=48           mean  -5.14%  median  -1.73%  beats 3L 80/100  worse 6
+    size <0.5%   ( 22 cells): K=32  -3.46%  3L  -3.72%
+    size 0.5-2%  ( 31 cells): K=32  -3.98%  3L  -2.90%
+    size 2-8%    ( 34 cells): K=32  -5.04%  3L  -2.49%
+    size >=8%    ( 13 cells): K=32  -5.08%  3L  -0.57%
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-v1rd-cv.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47  traces beating 3L 0/25
+  K=40 r=0.005 min=200 m=0 t=0 mean  -4.46%  median  -1.40%  beats 3L 69/100  worse than S3-FIFO 10  traces beating 3L 18/25
+      switches median 1; selector entries / C: median 0.39, max 40.0
+  K=48 r=0.005 min=200 m=0 t=0 mean  -4.62%  median  -1.43%  beats 3L 72/100  worse than S3-FIFO 9  traces beating 3L 19/25
+      switches median 1; selector entries / C: median 0.46, max 48.0
+    size <0.5%   ( 22 cells): 3L  -3.72%  v0:  -4.08%  v1:  -4.09%
+    size 0.5-2%  ( 31 cells): 3L  -2.90%  v0:  -4.13%  v1:  -4.20%
+    size 2-8%    ( 34 cells): 3L  -2.49%  v0:  -4.64%  v1:  -4.93%
+    size >=8%    ( 13 cells): 3L  -0.57%  v0:  -5.40%  v1:  -5.72%
+
+# control: v1 pool CV portfolio, first 40 / 48, no rd
+train-long: 100 cells, windows 8-39 vs S3-FIFO; portfolio /mydata/vq/portfolio-r1bp-cv.json
+  3L-Cache               mean  -2.64%  median  -0.02%  beats 3L 0/100  worse than S3-FIFO 47  traces beating 3L 0/25
+  K=40 r=0.005 min=200 m=0 t=0 mean  -4.28%  median  -1.38%  beats 3L 71/100  worse than S3-FIFO 11  traces beating 3L 19/25
+      switches median 1; selector entries / C: median 0.39, max 40.0
+  K=48 r=0.005 min=200 m=0 t=0 mean  -4.29%  median  -1.38%  beats 3L 70/100  worse than S3-FIFO 11  traces beating 3L 19/25
+      switches median 1; selector entries / C: median 0.46, max 48.0
+    size <0.5%   ( 22 cells): 3L  -3.72%  v0:  -3.49%  v1:  -3.52%
+    size 0.5-2%  ( 31 cells): 3L  -2.90%  v0:  -3.95%  v1:  -3.94%
+    size 2-8%    ( 34 cells): 3L  -2.49%  v0:  -4.77%  v1:  -4.74%
+    size >=8%    ( 13 cells): 3L  -0.57%  v0:  -5.15%  v1:  -5.22%

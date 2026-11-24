@@ -1,0 +1,24 @@
+['2Q', '3L-Cache', 'ARC', 'Belady', 'CLOCK', 'CLOCK-Pro', 'Cacheus', 'FIFO', 'LHD', 'LIRS', 'LRU', 'LeCaR', 'MQ', 'S3-FIFO', 'SIEVE']
+train-long: 100 cells; v1 realistic 5-fold CV vs 3L-Cache, OPT and the best other published policy (change vs S3-FIFO, scored part)
+  mean: v1 -4.20%  3L -2.64%  best other -4.42%  OPT -19.61%
+  v1 captures 21% of OPT's mean gain; 3L-Cache 13%
+  3L-Cache better than v1 by > 0.5 pt in 17 cells, v1 better by > 0.5 pt in 60
+    size <0.5%    22 cells: 3L ahead in  7; mean gap v1-3L +0.34 pt; OPT -15.27%, v1 gets  22% of it, 3L  24%
+    size 0.5-2%   31 cells: 3L ahead in  6; mean gap v1-3L -0.96 pt; OPT -17.14%, v1 gets  22% of it, 3L  17%
+    size 2-8%     34 cells: 3L ahead in  2; mean gap v1-3L -2.21 pt; OPT -19.16%, v1 gets  24% of it, 3L  13%
+    size >=8%     13 cells: 3L ahead in  2; mean gap v1-3L -4.57 pt; OPT -34.02%, v1 gets  15% of it, 3L   2%
+  in the cells where 3L-Cache is ahead:
+    gap: mean 4.20 pt, median 2.63 pt, largest 22.42 pt; the best other policy also beats v1 in 6 of them
+    best other policy there: {'W-TinyLFU': 6, 'LHD': 3, 'ARC': 2, 'MQ': 2, 'SIEVE': 2, 'LIRS': 1, 'S3-FIFO': 1}
+    spread over traces: 10 of 25 traces; cells per such trace: [3, 3, 3, 2, 1, 1, 1, 1, 1, 1]
+  the 10 largest 3L-Cache leads (anonymous): size%, v1, 3L, best other, OPT
+      0.41%  v1  -8.63%  3L -31.05%  other -29.11% (W-TinyLFU)  OPT -39.76%
+     12.25%  v1  -8.25%  3L -16.83%  other  -8.02% (W-TinyLFU)  OPT -48.86%
+      1.22%  v1 -10.37%  3L -18.15%  other -12.79% (W-TinyLFU)  OPT -38.40%
+      0.68%  v1  -5.30%  3L  -9.82%  other  -6.52% (LHD)  OPT -35.17%
+      1.09%  v1  -3.75%  3L  -7.86%  other  -2.14% (W-TinyLFU)  OPT -26.57%
+      1.87%  v1  -4.42%  3L  -8.48%  other  -0.88% (SIEVE)  OPT -32.08%
+      2.26%  v1 -19.77%  3L -22.84%  other -22.91% (LHD)  OPT -45.38%
+      0.36%  v1  -5.96%  3L  -8.87%  other  -4.43% (LIRS)  OPT -16.51%
+      1.30%  v1  -4.76%  3L  -7.39%  other  -0.88% (MQ)  OPT -29.93%
+      8.69%  v1  +1.71%  3L  -0.20%  other  -5.50% (ARC)  OPT -11.39%

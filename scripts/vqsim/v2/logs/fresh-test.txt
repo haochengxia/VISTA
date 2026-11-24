@@ -1,0 +1,52 @@
+== 21:27:58 drop rule (baselines failed, or zero scored misses for S3-FIFO or 3L-Cache in a cell)
+  dropped one trace: baselines failed
+  dropped one trace: baselines failed
+  scored: 18 of 20 traces, 376.7M requests
+e37e03f705f5ab526c502d01aeedc5a24685c98648c52313dbd1a1365ac86c20  suites/fresh-long.json
+8e101395bbda576103399cbfd7f7dd9deb0f3507ccb624b8efecafe9ed424d55  suites/fresh-long.scored.json
+355417e737c231ab10d5db00fedf7b4f763e25283904d6a8a33f89e3f0e277dd  scripts/vqsim/vqsim.c
+8c5193d00d8bd4cb656993cf9610116ff0ac9363ba88d9b740e498c485957da4  scripts/vqsim/vqcore.h
+832c83f114f0b27121abaae67a09b864651b5ae9ece39fde0ca56250126215de  scripts/vqsim/study/vq_portfolio_real.py
+718ee19074e700510c7b8976310d21dec5aeb32947d55198ae6199e823fa3e37  scripts/vqsim/study/vq_prepare.py
+f807bab8ad5d2dec2c75fa45f2d55663b568f703cdda51300faf9010bd6a6e9b  scripts/vqsim/study/vq_run3.py
+0e96ab8ff3a84c61081dd534f8db5ddfaf72bebca90da37348e89a87fce3d7f0  scripts/vqsim/v1/portfolio.json
+0eb708a62a81c5085f6639d88d294b89cff41711cbfff44f2661d168e84073ea  scripts/vqsim/v2/pool.txt
+672d061732f9474485ea8741097acd867fcfea5d9aec9258c7837cd5e83e3cba  scripts/vqsim/v2/PREREG-fresh.md
+239a4595b5fcbe1fead1f035407018c56bda470a25d7fe223ff239f390375678  scripts/vqsim/v2/fresh_stats.py
+bbde809c45345fbd11bf1df31bba7b1e1728d2f9cabddbb4e084a459113d3c76  scripts/vqsim/v2/fresh.sh
+13e70cf3f839a441931f86ce8c0881d5aba58a6b6386d3708349ec9206e9f1bd  scripts/vqsim/evolve/evolve.py
+aefe0154930f7abe0668f61cc32de87bd68c349bd143aca9c97dac2b90327944  scripts/vqsim/evolve/polsim.c
+7caec457c87c63e0ad31c4419774e2db123b1e53e172c2cc83a5d737a49b0723  scripts/vqsim/evolve/policy.h
+2005b6634899978be542b18325bfda6ef8ee349d2387ef6c14e64d80ff216ea7  /mydata/evolve/progs/p024-2.c
+== 21:27:58 vq_prepare
+18
+== 21:31:32 S3-FIFO runs (r1 line 0)
+r1: 72 cells, 72 run now, 72 parts
+== 21:31:36 candidate (v2 + replay 128) and references (v1, v2, v1 + replay 128)
+fresh-long: 72 cells, windows 8-39 vs S3-FIFO; portfolio scripts/vqsim/v1/portfolio.json
+  3L-Cache               mean  -4.27%  median  -2.21%  beats 3L 0/72  worse than S3-FIFO 16  traces beating 3L 0/18
+  K=32 r=0.005 min=200 m=0 t=0 +16 log 1C/65536 w1 replay128 mean  -4.47%  median  -2.33%  beats 3L 39/72  worse than S3-FIFO 4  traces beating 3L 9/18
+      switches median 2; selector entries / C: median 0.35, max 7.2; prefix log / C: median 1.2, max 49; replay steps / request: median 4.08, max 19
+  K=32 r=0.005 min=200 m=0 t=0 mean  -3.80%  median  -1.89%  beats 3L 38/72  worse than S3-FIFO 2  traces beating 3L 6/18
+      switches median 1; selector entries / C: median 0.23, max 4.8
+  K=32 r=0.005 min=200 m=0 t=0 +16 log 1C/65536 w1 mean  -4.28%  median  -2.31%  beats 3L 38/72  worse than S3-FIFO 4  traces beating 3L 9/18
+      switches median 2; selector entries / C: median 0.35, max 7.2; prefix log / C: median 1.2, max 49; replay steps / request: median 4.08, max 19
+  K=32 r=0.005 min=200 m=0 t=0 replay128 mean  -3.88%  median  -1.88%  beats 3L 38/72  worse than S3-FIFO 4  traces beating 3L 8/18
+      switches median 1; selector entries / C: median 0.23, max 4.8
+    size <0.5%   ( 17 cells): 3L  -2.86%  v0:  -3.12%  v1:  -2.76%  v2:  -3.12%  v3:  -2.76%
+    size 0.5-2%  ( 21 cells): 3L  -2.60%  v0:  -2.74%  v1:  -2.48%  v2:  -2.68%  v3:  -2.47%
+    size 2-8%    ( 24 cells): 3L  -5.03%  v0:  -5.18%  v1:  -4.40%  v2:  -5.06%  v3:  -4.59%
+    size >=8%    ( 10 cells): 3L  -8.32%  v0:  -8.70%  v1:  -6.92%  v2:  -7.75%  v3:  -7.05%
+== 21:32:49 the pre-registered statistics
+fresh-long: 18 traces, 72 cells, windows 8-39 vs S3-FIFO
+  3L-Cache                           mean  -4.27%  median  -2.21%
+  v2-replay128                       mean  -4.47%  median  -2.33%  cells beating 3L 39/72  worse than S3-FIFO 4  traces beating 3L 9/18
+  v1                                 mean  -3.80%  median  -1.89%  cells beating 3L 38/72  worse than S3-FIFO 2  traces beating 3L 6/18
+  v2                                 mean  -4.28%  median  -2.31%  cells beating 3L 38/72  worse than S3-FIFO 4  traces beating 3L 9/18
+  v1-replay128                       mean  -3.88%  median  -1.88%  cells beating 3L 38/72  worse than S3-FIFO 4  traces beating 3L 8/18
+
+bar for v2-replay128: (1) mean below 3L-Cache's: yes; (2) median below 3L-Cache's: yes; (3) beats 3L-Cache in more than half of the cells: yes -> PASS
+bootstrap over traces (10,000, seed 0): candidate mean - 3L-Cache mean = -0.20 pt, 95% interval [-1.08, +0.50] pt; share of resamples with the candidate ahead: 66.7%
+== 21:32:49 reference: the knob search's best single policy (p024-2), polsim cold
+  p024-2: mean -3.48% median -1.53% vs S3-FIFO (3L-Cache -4.27% / -2.21%); traces beating 3L-Cache 9/18; cells 36/72; worse than S3-FIFO in 8 cells
+== 21:33:27 done
