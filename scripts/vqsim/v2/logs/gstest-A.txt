@@ -1,0 +1,64 @@
+== 20:01:08 simulators: the candidate's (commit 5c14ae8) and the dumping build for the takeover grid
+/work/vqsim-5c14ae8.c: OK
+scripts/vqsim/vqcore.h: OK
+scripts/vqsim/study/vq_portfolio_real.py: OK
+scripts/vqsim/study/vq_run3.py: OK
+scripts/vqsim/v1/portfolio.json: OK
+scripts/vqsim/v2/pool.txt: OK
+e092c236afbaeda07914010465c9f18ece03d715b4461ab55d9751bf2b939353  scripts/vqsim/vqsim.c
+== 20:01:11 suite
+wrote 106 traces to /mydata/suites/gs-test.json
+28a468f7e2791e770f4d00c9df56f1ac9f5aac143801bdec1de511e0b9107371  /mydata/suites/gs-test.json
+== 20:04:47 content check (first 1M object ids) against gs-dev and within gs-test
+  106 traces: 0 match a gs-dev trace, 0 repeat an earlier gs-test trace; 106 kept, 2221.0M requests; alibabaBlock 50, cloudphysics 40, tencentBlock 16
+e0107b831803608bc17374cb808dc256652ea1c1d67daa3eff9426c40621dd4c  /mydata/suites/gs-test.checked.json
+== 20:04:48 prepare (dense ids, split, cache sizes)
+  gs-test: 106 traces prepared, 0 dropped (too few distinct objects in the observed part)
+== 20:05:54 S3-FIFO in vqsim (r1 line 0)
+r1: 424 cells, 424 run now, 424 parts
+== 20:06:08 the zoo, then 3L-Cache and S3-FIFO per window at full scale and as miniatures, in 4 groups
+  gs-test: zoo, 1620 runs, 0 errors
+  50/432 runs
+  100/432 runs
+  150/432 runs
+  200/432 runs
+  250/432 runs
+  300/432 runs
+  350/432 runs
+  400/432 runs
+  432/432 runs
+  gs-test: zoo, 1620 runs, 0 errors
+  50/432 runs
+  100/432 runs
+  150/432 runs
+  200/432 runs
+  250/432 runs
+  300/432 runs
+  350/432 runs
+  400/432 runs
+  432/432 runs
+  gs-test: zoo, 1560 runs, 0 errors
+  50/416 runs
+  100/416 runs
+  150/416 runs
+  200/416 runs
+  250/416 runs
+  300/416 runs
+  350/416 runs
+  400/416 runs
+  416/416 runs
+  gs-test: zoo, 1560 runs, 0 errors
+  50/416 runs
+  100/416 runs
+  150/416 runs
+  200/416 runs
+  250/416 runs
+  300/416 runs
+  350/416 runs
+  400/416 runs
+  416/416 runs
+  gs-test: meta.json has S3-FIFO's and 3L-Cache's suffix miss ratios
+== 22:04:23 drop rule
+  gs-test: drop rule (no misses after the split for S3-FIFO or 3L-Cache in a cell): 106 traces kept, 0 dropped
+  scored: 106 traces, 424 cells, 2221.0M requests; alibabaBlock 50, cloudphysics 40, tencentBlock 16
+== 22:04:23 stage A done

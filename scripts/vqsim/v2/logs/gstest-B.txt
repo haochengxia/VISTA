@@ -1,0 +1,169 @@
+== 22:04:46 pre-registration and the candidate's files
+scripts/vqsim/v2/PREREG-gstest.md: OK
+/work/vqsim-5c14ae8.c: OK
+scripts/vqsim/vqcore.h: OK
+scripts/vqsim/study/vq_portfolio_real.py: OK
+scripts/vqsim/study/vq_run3.py: OK
+scripts/vqsim/v1/portfolio.json: OK
+scripts/vqsim/v2/pool.txt: OK
+== 22:04:46 v2 + replay 128 (v1's frozen 32 + 16 screened from pool.txt), then with VQSIM_TRACE
+gs-test: 424 cells, windows 8-39 vs S3-FIFO; portfolio scripts/vqsim/v1/portfolio.json
+  3L-Cache               mean  -4.62%  median  -2.15%  beats 3L 0/424  worse than S3-FIFO 106  traces beating 3L 0/106
+  K=32 r=0.005 min=200 m=0 t=0 +16 log 1C/65536 w1 replay128 mean  -5.11%  median  -2.36%  beats 3L 226/424  worse than S3-FIFO 46  traces beating 3L 55/106
+      switches median 3; selector entries / C: median 0.27, max 28.6; prefix log / C: median 0.7, max 195; replay steps / request: median 3.32, max 19
+    size <0.5%   ( 87 cells): 3L  -2.29%  v0:  -2.48%
+    size 0.5-2%  (123 cells): 3L  -4.08%  v0:  -4.12%
+    size 2-8%    (141 cells): 3L  -5.68%  v0:  -6.34%
+    size >=8%    ( 73 cells): 3L  -6.27%  v0:  -7.55%
+  gs-test: 424/424 cells reproduce gv2 line 0 exactly
+== 22:09:12 the bar, P1
+gs-test: 106 traces, 424 cells; change in misses on windows 8-39 vs S3-FIFO; 3L-Cache cold over the whole trace
+  bar: mean -5.11% below 3L-Cache's -4.62%: yes
+  bar: median -2.36% below 3L-Cache's -2.15%: yes
+  bar: beats 3L-Cache in 226/424 cells, more than half: yes
+  => PASS
+  lead over 3L-Cache (3L-Cache's mean minus v2's): +0.49 pt, 95% interval [+0.11, +0.88] (10,000 trace resamples)
+  traces beating 3L-Cache (cell mean): 55/106; cells worse than S3-FIFO (> +0.05%): v2 46, 3L-Cache 106
+  cache  1% of the prefix's objects: v2 -2.65%, 3L-Cache -2.50%, cells < 3L 53/106
+  cache  3% of the prefix's objects: v2 -4.09%, 3L-Cache -4.04%, cells < 3L 57/106
+  cache 10% of the prefix's objects: v2 -6.59%, 3L-Cache -6.01%, cells < 3L 62/106
+  cache 30% of the prefix's objects: v2 -7.12%, 3L-Cache -5.95%, cells < 3L 54/106
+  family alibabaBlock (50 traces): v2 -6.40%, 3L-Cache -6.35%
+  family cloudphysics (40 traces): v2 -2.77%, 3L-Cache -1.67%
+  family tencentBlock (16 traces): v2 -6.95%, 3L-Cache -6.61%
+== 22:09:13 the classic-oracle bound, P2
+gs-test: 106 traces, 424 cells; change in suffix misses vs S3-FIFO; 3L-Cache cold over the whole trace
+  check: the zoo's S3-FIFO equals meta's in 424/424 cells
+  LRU        mean   +7.27%  median   +4.65%  cells better than 3L-Cache  34/424
+  FIFO       mean  +16.06%  median   +9.48%  cells better than 3L-Cache   5/424
+  CLOCK      mean   +7.36%  median   +4.79%  cells better than 3L-Cache  25/424
+  SIEVE      mean  +21.28%  median   +5.36%  cells better than 3L-Cache  16/424
+  ARC        mean   +1.04%  median   +0.59%  cells better than 3L-Cache  86/424
+  LIRS       mean   +3.06%  median   +1.24%  cells better than 3L-Cache  61/424
+  2Q         mean   +0.74%  median   +0.42%  cells better than 3L-Cache  76/424
+  CLOCK-Pro  mean +248.93%  median  +97.43%  cells better than 3L-Cache   4/424
+  MQ         mean   +5.01%  median   +2.51%  cells better than 3L-Cache  49/424
+  S3-FIFO    mean   +0.00%  median   +0.00%  cells better than 3L-Cache 106/424
+  W-TinyLFU  mean  +14.01%  median   +3.18%  cells better than 3L-Cache  51/424
+  LeCaR      mean   +4.77%  median   +3.48%  cells better than 3L-Cache  42/424
+  Cacheus    mean   +4.26%  median   +3.15%  cells better than 3L-Cache  49/424
+  LHD        mean   -0.82%  median   +0.77%  cells better than 3L-Cache  94/424
+  Belady     mean  -22.45%  median  -20.12%  cells better than 3L-Cache 424/424
+  3L-Cache                                     mean  -4.62%  median  -2.15%  cells < 3L   0/424  worse than S3 106  traces < 3L >0/>0.25pt 0/0 of 106  lead +0.00 [-0.00, -0.00]
+  classic oracle (best of 14 per cell)         mean  -5.25%  median  -2.21%  cells < 3L 221/424  worse than S3  0  traces < 3L >0/>0.25pt 56/51 of 106  lead +0.63 [+0.21, +1.06]
+  3L-Cache beats every classic algorithm (per trace, cell mean) on 50/106 traces
+== 22:09:17 miniatures at 0.02,0.05,0.1,0.2, and the takeover grid, in 4 groups
+  gs-test: miniatures at rates [0.02, 0.05, 0.1, 0.2]: 864 runs
+  16/108 cells
+  32/108 cells
+  48/108 cells
+  64/108 cells
+  80/108 cells
+  96/108 cells
+  108/108 cells
+  gs-test: miniatures at rates [0.02, 0.05, 0.1, 0.2]: 864 runs
+  16/108 cells
+  32/108 cells
+  48/108 cells
+  64/108 cells
+  80/108 cells
+  96/108 cells
+  108/108 cells
+  gs-test: miniatures at rates [0.02, 0.05, 0.1, 0.2]: 832 runs
+  16/104 cells
+  32/104 cells
+  48/104 cells
+  64/104 cells
+  80/104 cells
+  96/104 cells
+  104/104 cells
+  gs-test: miniatures at rates [0.02, 0.05, 0.1, 0.2]: 832 runs
+  16/104 cells
+  32/104 cells
+  48/104 cells
+  64/104 cells
+  80/104 cells
+  96/104 cells
+  104/104 cells
+== 07:08:01 hindsight with a learner, and the rules (P3: rate 0.1, kappa 1, H=8, pes)
+gs-test: 106 traces, 424 cells
+  checks: S3-FIFO in libCacheSim = r1 line 0 per window in 424/424 cells; 3L-Cache here vs the baselines' 3L-Cache: median |diff| 0.00 pt, max 0.00 pt
+  3L-Cache (baselines)                         mean  -4.62%  median  -2.15%  cells < 3L   0/424  worse than S3 106  traces < 3L >0/>0.25pt 0/0 of 106  lead +0.00 [-0.00, -0.00]
+  3L-Cache (this run, cold)                    mean  -4.62%  median  -2.15%  cells < 3L  97/424  worse than S3 106  traces < 3L >0/>0.25pt 47/0 of 106  lead +0.00 [-0.00, +0.00]
+  v2 + replay 128                              mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  hindsight min(v2, 3L) per cell               mean  -5.98%  median  -3.21%  cells < 3L 288/424  worse than S3 31  traces < 3L >0/>0.25pt 103/73 of 106  lead +1.36 [+1.08, +1.65]
+  at the split, the 3L-Cache miniature vs v2's leader (sampled, windows 2-7) predicts the suffix winner in 222/424 cells
+  split: 3L if its miniature leads by 0% (0 cells) mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  sticky: first window 3L leads by 0%          mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.88]
+  split: 3L if its miniature leads by 1% (0 cells) mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  sticky: first window 3L leads by 1%          mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  split: 3L if its miniature leads by 3% (0 cells) mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  sticky: first window 3L leads by 3%          mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  split: 3L if its miniature leads by 5% (0 cells) mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  sticky: first window 3L leads by 5%          mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  split: 3L if its miniature leads by 10% (0 cells) mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  sticky: first window 3L leads by 10%         mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  (optimistic: the switched-to 3L-Cache is scored as if it had run from the start; no takeover cost)
+gs-test: one-way switch to 3L-Cache with the real takeover from the last 128*C requests
+  takeover cost in misses per cache slot (opt), all cells and windows: median 0.14, IQR [0.00, 1.18]
+  v2 + replay 128                              mean  -5.11%  median  -2.36%  cells < 3L 226/424  worse than S3 46  traces < 3L >0/>0.25pt 55/49 of 106  lead +0.49 [+0.12, +0.87]
+  hindsight best switch window (real takeover, opt) mean  -6.04%  median  -3.14%  cells < 3L 295/424  worse than S3 25  traces < 3L >0/>0.25pt 91/75 of 106  lead +1.42 [+1.13, +1.73]
+  hindsight best switch window (real takeover, pes) mean  -5.97%  median  -3.10%  cells < 3L 283/424  worse than S3 31  traces < 3L >0/>0.25pt 88/70 of 106  lead +1.35 [+1.06, +1.66]
+  rate 0.05 kappa 0 H=all opt (182 switch)     mean  -4.88%  median  -2.10%  cells < 3L 186/424  worse than S3 67  traces < 3L >0/>0.25pt 51/40 of 106  lead +0.26 [-0.06, +0.58]
+  rate 0.05 kappa 0 H=all pes (182 switch)     mean  -4.82%  median  -2.03%  cells < 3L 159/424  worse than S3 70  traces < 3L >0/>0.25pt 46/36 of 106  lead +0.20 [-0.11, +0.52]
+  rate 0.05 kappa 0 H=8 opt (239 switch)       mean  -4.87%  median  -1.99%  cells < 3L 184/424  worse than S3 73  traces < 3L >0/>0.25pt 49/40 of 106  lead +0.25 [-0.05, +0.56]
+  rate 0.05 kappa 0 H=8 pes (239 switch)       mean  -4.80%  median  -1.96%  cells < 3L 157/424  worse than S3 77  traces < 3L >0/>0.25pt 44/36 of 106  lead +0.18 [-0.13, +0.49]
+  rate 0.05 kappa 0.25 H=all opt (168 switch)  mean  -4.97%  median  -2.17%  cells < 3L 189/424  worse than S3 63  traces < 3L >0/>0.25pt 51/41 of 106  lead +0.35 [+0.03, +0.69]
+  rate 0.05 kappa 0.25 H=all pes (168 switch)  mean  -4.92%  median  -2.03%  cells < 3L 167/424  worse than S3 66  traces < 3L >0/>0.25pt 47/38 of 106  lead +0.29 [-0.03, +0.64]
+  rate 0.05 kappa 0.25 H=8 opt (204 switch)    mean  -4.94%  median  -2.17%  cells < 3L 184/424  worse than S3 66  traces < 3L >0/>0.25pt 50/40 of 106  lead +0.32 [+0.01, +0.66]
+  rate 0.05 kappa 0.25 H=8 pes (204 switch)    mean  -4.89%  median  -2.02%  cells < 3L 160/424  worse than S3 69  traces < 3L >0/>0.25pt 45/36 of 106  lead +0.26 [-0.06, +0.60]
+  rate 0.05 kappa 0.5 H=all opt (160 switch)   mean  -4.96%  median  -2.09%  cells < 3L 190/424  worse than S3 62  traces < 3L >0/>0.25pt 49/41 of 106  lead +0.34 [+0.02, +0.68]
+  rate 0.05 kappa 0.5 H=all pes (160 switch)   mean  -4.92%  median  -2.03%  cells < 3L 170/424  worse than S3 65  traces < 3L >0/>0.25pt 47/38 of 106  lead +0.30 [-0.02, +0.64]
+  rate 0.05 kappa 0.5 H=8 opt (191 switch)     mean  -4.95%  median  -2.02%  cells < 3L 186/424  worse than S3 66  traces < 3L >0/>0.25pt 50/42 of 106  lead +0.32 [+0.01, +0.66]
+  rate 0.05 kappa 0.5 H=8 pes (191 switch)     mean  -4.90%  median  -1.99%  cells < 3L 165/424  worse than S3 69  traces < 3L >0/>0.25pt 47/38 of 106  lead +0.27 [-0.04, +0.62]
+  rate 0.05 kappa 1 H=all opt (145 switch)     mean  -4.94%  median  -2.17%  cells < 3L 192/424  worse than S3 60  traces < 3L >0/>0.25pt 48/41 of 106  lead +0.32 [-0.01, +0.66]
+  rate 0.05 kappa 1 H=all pes (145 switch)     mean  -4.90%  median  -2.11%  cells < 3L 173/424  worse than S3 63  traces < 3L >0/>0.25pt 46/38 of 106  lead +0.28 [-0.05, +0.63]
+  rate 0.05 kappa 1 H=8 opt (170 switch)       mean  -4.95%  median  -2.17%  cells < 3L 190/424  worse than S3 63  traces < 3L >0/>0.25pt 47/41 of 106  lead +0.32 [-0.01, +0.68]
+  rate 0.05 kappa 1 H=8 pes (170 switch)       mean  -4.90%  median  -2.11%  cells < 3L 170/424  worse than S3 67  traces < 3L >0/>0.25pt 45/38 of 106  lead +0.28 [-0.05, +0.63]
+  rate 0.1 kappa 0 H=all opt (209 switch)      mean  -4.82%  median  -2.09%  cells < 3L 178/424  worse than S3 69  traces < 3L >0/>0.25pt 44/34 of 106  lead +0.20 [-0.08, +0.50]
+  rate 0.1 kappa 0 H=all pes (209 switch)      mean  -4.76%  median  -2.02%  cells < 3L 152/424  worse than S3 78  traces < 3L >0/>0.25pt 39/29 of 106  lead +0.14 [-0.14, +0.44]
+  rate 0.1 kappa 0 H=8 opt (270 switch)        mean  -4.77%  median  -2.07%  cells < 3L 177/424  worse than S3 71  traces < 3L >0/>0.25pt 43/32 of 106  lead +0.15 [-0.12, +0.45]
+  rate 0.1 kappa 0 H=8 pes (270 switch)        mean  -4.70%  median  -1.99%  cells < 3L 148/424  worse than S3 81  traces < 3L >0/>0.25pt 36/28 of 106  lead +0.08 [-0.19, +0.38]
+  rate 0.1 kappa 0.25 H=all opt (188 switch)   mean  -4.83%  median  -2.17%  cells < 3L 178/424  worse than S3 66  traces < 3L >0/>0.25pt 44/34 of 106  lead +0.21 [-0.10, +0.54]
+  rate 0.1 kappa 0.25 H=all pes (188 switch)   mean  -4.78%  median  -2.03%  cells < 3L 157/424  worse than S3 73  traces < 3L >0/>0.25pt 40/30 of 106  lead +0.15 [-0.15, +0.48]
+  rate 0.1 kappa 0.25 H=8 opt (226 switch)     mean  -4.85%  median  -2.02%  cells < 3L 178/424  worse than S3 68  traces < 3L >0/>0.25pt 41/35 of 106  lead +0.23 [-0.06, +0.55]
+  rate 0.1 kappa 0.25 H=8 pes (226 switch)     mean  -4.79%  median  -1.98%  cells < 3L 154/424  worse than S3 77  traces < 3L >0/>0.25pt 37/30 of 106  lead +0.17 [-0.13, +0.49]
+  rate 0.1 kappa 0.5 H=all opt (178 switch)    mean  -4.86%  median  -2.17%  cells < 3L 178/424  worse than S3 65  traces < 3L >0/>0.25pt 44/35 of 106  lead +0.23 [-0.07, +0.57]
+  rate 0.1 kappa 0.5 H=all pes (178 switch)    mean  -4.80%  median  -2.03%  cells < 3L 161/424  worse than S3 71  traces < 3L >0/>0.25pt 41/32 of 106  lead +0.18 [-0.13, +0.51]
+  rate 0.1 kappa 0.5 H=8 opt (210 switch)      mean  -4.89%  median  -2.07%  cells < 3L 175/424  worse than S3 66  traces < 3L >0/>0.25pt 43/37 of 106  lead +0.26 [-0.03, +0.59]
+  rate 0.1 kappa 0.5 H=8 pes (210 switch)      mean  -4.83%  median  -1.99%  cells < 3L 157/424  worse than S3 74  traces < 3L >0/>0.25pt 41/34 of 106  lead +0.21 [-0.10, +0.54]
+  rate 0.1 kappa 1 H=all opt (157 switch)      mean  -4.92%  median  -2.17%  cells < 3L 183/424  worse than S3 61  traces < 3L >0/>0.25pt 50/41 of 106  lead +0.30 [-0.03, +0.64]
+  rate 0.1 kappa 1 H=all pes (157 switch)      mean  -4.89%  median  -2.03%  cells < 3L 169/424  worse than S3 67  traces < 3L >0/>0.25pt 47/39 of 106  lead +0.26 [-0.07, +0.61]
+  rate 0.1 kappa 1 H=8 opt (182 switch)        mean  -4.93%  median  -2.09%  cells < 3L 180/424  worse than S3 63  traces < 3L >0/>0.25pt 49/40 of 106  lead +0.30 [-0.02, +0.64]
+  rate 0.1 kappa 1 H=8 pes (182 switch)        mean  -4.89%  median  -1.99%  cells < 3L 166/424  worse than S3 69  traces < 3L >0/>0.25pt 46/38 of 106  lead +0.26 [-0.06, +0.60]
+  rate 0.2 kappa 0 H=all opt (219 switch)      mean  -5.06%  median  -2.20%  cells < 3L 189/424  worse than S3 61  traces < 3L >0/>0.25pt 56/45 of 106  lead +0.43 [+0.16, +0.71]
+  rate 0.2 kappa 0 H=all pes (219 switch)      mean  -4.99%  median  -2.14%  cells < 3L 165/424  worse than S3 68  traces < 3L >0/>0.25pt 50/40 of 106  lead +0.36 [+0.08, +0.65]
+  rate 0.2 kappa 0 H=8 opt (277 switch)        mean  -4.99%  median  -2.20%  cells < 3L 183/424  worse than S3 67  traces < 3L >0/>0.25pt 53/45 of 106  lead +0.37 [+0.11, +0.64]
+  rate 0.2 kappa 0 H=8 pes (277 switch)        mean  -4.91%  median  -2.11%  cells < 3L 158/424  worse than S3 74  traces < 3L >0/>0.25pt 46/38 of 106  lead +0.28 [+0.02, +0.56]
+  rate 0.2 kappa 0.25 H=all opt (198 switch)   mean  -5.12%  median  -2.20%  cells < 3L 190/424  worse than S3 59  traces < 3L >0/>0.25pt 54/47 of 106  lead +0.50 [+0.21, +0.81]
+  rate 0.2 kappa 0.25 H=all pes (198 switch)   mean  -5.05%  median  -2.17%  cells < 3L 168/424  worse than S3 66  traces < 3L >0/>0.25pt 48/42 of 106  lead +0.43 [+0.14, +0.74]
+  rate 0.2 kappa 0.25 H=8 opt (234 switch)     mean  -5.11%  median  -2.22%  cells < 3L 187/424  worse than S3 62  traces < 3L >0/>0.25pt 53/48 of 106  lead +0.48 [+0.20, +0.79]
+  rate 0.2 kappa 0.25 H=8 pes (234 switch)     mean  -5.04%  median  -2.14%  cells < 3L 164/424  worse than S3 69  traces < 3L >0/>0.25pt 47/43 of 106  lead +0.41 [+0.13, +0.72]
+  rate 0.2 kappa 0.5 H=all opt (179 switch)    mean  -5.11%  median  -2.19%  cells < 3L 193/424  worse than S3 58  traces < 3L >0/>0.25pt 53/47 of 106  lead +0.49 [+0.20, +0.81]
+  rate 0.2 kappa 0.5 H=all pes (179 switch)    mean  -5.06%  median  -2.03%  cells < 3L 175/424  worse than S3 65  traces < 3L >0/>0.25pt 50/43 of 106  lead +0.43 [+0.13, +0.75]
+  rate 0.2 kappa 0.5 H=8 opt (210 switch)      mean  -5.11%  median  -2.18%  cells < 3L 190/424  worse than S3 60  traces < 3L >0/>0.25pt 53/48 of 106  lead +0.49 [+0.19, +0.80]
+  rate 0.2 kappa 0.5 H=8 pes (210 switch)      mean  -5.05%  median  -2.06%  cells < 3L 172/424  worse than S3 67  traces < 3L >0/>0.25pt 50/45 of 106  lead +0.43 [+0.13, +0.74]
+  rate 0.2 kappa 1 H=all opt (157 switch)      mean  -5.17%  median  -2.19%  cells < 3L 196/424  worse than S3 57  traces < 3L >0/>0.25pt 54/49 of 106  lead +0.55 [+0.22, +0.87]
+  rate 0.2 kappa 1 H=all pes (157 switch)      mean  -5.13%  median  -2.11%  cells < 3L 183/424  worse than S3 62  traces < 3L >0/>0.25pt 52/46 of 106  lead +0.51 [+0.18, +0.83]
+  rate 0.2 kappa 1 H=8 opt (187 switch)        mean  -5.17%  median  -2.13%  cells < 3L 194/424  worse than S3 59  traces < 3L >0/>0.25pt 53/48 of 106  lead +0.54 [+0.23, +0.86]
+  rate 0.2 kappa 1 H=8 pes (187 switch)        mean  -5.12%  median  -2.06%  cells < 3L 181/424  worse than S3 64  traces < 3L >0/>0.25pt 51/46 of 106  lead +0.50 [+0.19, +0.82]
+== 07:10:12 when 3L-Cache's edge appears, and its miniature's fidelity (P4)
+gs-test: 106 traces, 424 cells; 3L-Cache vs S3-FIFO at full scale, both cold from the start
+  windows 2-7 (prefix): median -0.41%, mean -1.53%;  windows 8-39: median -2.15%, mean -4.62%;  corr(prefix, suffix) 0.67
+  by quarter of the suffix (windows 8-15, 16-23, 24-31, 32-39): mean -3.69%, -4.74%, -4.95%, -5.05%
+  at the selector's rate: miniature 3L-vs-S3 on windows 2-7 minus full scale: median +2.73 pt, IQR [+0.43, +8.02]; corr 0.39
+  rate 0.02: scaled 3L-Cache miniature vs full scale on windows 8-39: median +7.68%, IQR [+1.65, +18.76]%
+  rate 0.05: scaled 3L-Cache miniature vs full scale on windows 8-39: median +4.04%, IQR [+0.18, +11.73]%
+  rate 0.1: scaled 3L-Cache miniature vs full scale on windows 8-39: median +2.84%, IQR [-0.29, +7.05]%
+  rate 0.2: scaled 3L-Cache miniature vs full scale on windows 8-39: median +1.57%, IQR [-0.77, +4.38]%
+== 07:10:13 stage B done

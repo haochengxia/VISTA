@@ -243,5 +243,30 @@ The study scripts are kept as they ran. They expect the node layout (`/mydata/vq
        - **Result:** v2 with replay takeover (128) passes: −4.47% / −2.33%, 39/72 cells, against 3L-Cache's −4.27% / −2.21%.
        - **Caveats:** the bootstrap interval of the mean difference is [−1.08, +0.50] pt, and the trace count is 9/18. So it is a narrow pass, not a clear win.
        - **References:** v2 without replay −4.28%, v1 −3.80%, and the LLM knob search's best single policy −3.48%.
+     - **Option (b): 3L-Cache in the selector's portfolio** (`study/vq_learner.py`; development suite gs-dev, 32 whole
+       traces on a single server, launchers `v2/learner-*.sh`). It fails realistically.
+       - In hindsight a per-cell min(v2, 3L-Cache) leads by +1.38 pt (31/32 traces).
+       - Online, the best of 24 cost-aware one-way rules, with the real takeover (`vqsim` `VQSIM_DUMP`), reaches +0.55
+         against v2's +0.43.
+       - Three causes:
+         - 3L-Cache's edge appears after the split;
+         - its miniatures are biased against it;
+         - the takeover pays a contents-mismatch transient.
+     - **Pre-registered gs-test** (`v2/PREREG-gstest.md`, launcher `v2/gstest.sh`). It is the plan's large clean test.
+       - **Suite:** 106 unused whole traces of 10–50M requests (alibabaBlock 50, cloudphysics 40, tencentBlock 16), 424
+         cells; content check clean, nothing dropped.
+       - **Bar:** fresh-long's.
+       - **Result:** v2 with replay takeover (128) passes: −5.11% / −2.36%, 226/424 cells, against 3L-Cache's
+         −4.62% / −2.15%.
+         - The lead is **+0.49 pt [+0.11, +0.88]**, the first interval above zero.
+         - 55/106 traces beat 3L-Cache; 46 cells are worse than S3-FIFO, against 3L-Cache's 106.
+       - **Predictions:** all four hold.
+         - **P1:** the lead stays below 1 pt.
+         - **P2:** 3L-Cache beats every classic algorithm on 50/106 traces. The classic oracle's lead is +0.63, and v2 is
+           within 0.14 pt of it.
+         - **P3:** the gs-dev-best switching rule gains −0.23 pt over v2, against a hindsight gain of +0.86 pt.
+         - **P4:** 3L-Cache's edge grows from −0.41% before the split to −2.15% (median) after it.
+       - **Caveat:** the earlier suites' source lists were lost, so up to about 40 traces may overlap them. The lead is an
+         upper estimate.
 4. A C/libCacheSim port of `OnlineV1`. Started: `scripts/vqsim/vqonline.h` is `OnlineV1` in C, keyed by object id, with memory bounded by the cache and ghost, exact with `vq.py` (tested). On a synthetic 5M-request trace it costs 1.5× its own S3-FIFO at C = 20,000 and 200,000, and 3.2× at C = 2,000, at about 0.02–0.1 µs per request. In libCacheSim (`scripts/vqsim/libcachesim/`, algorithm `onlinev1`, exact with `vqonline`), on the same 5M-request synthetic trace, it takes 1.36× the time of libCacheSim's own S3-FIFO at C = 2,000, 0.47× at 20,000 and 0.39× at 200,000 (libCacheSim's S3-FIFO is built from three sub-caches with their own hash tables). A same-build, same-trace comparison with 3L-Cache is next; libCacheSim needs LightGBM for it.
 5. Size-aware variants.

@@ -335,8 +335,26 @@ static void run_online(const uint32_t *ids, uint64_t n, uint32_t n_obj, char *he
     uint32_t *lid = NULL; uint8_t *lw = NULL; uint64_t nl = 0, lcap = 0; /* screening: the sampled prefix (a ring if logcap) */
     if (screen > 0 && logcap > 0) { lcap = logcap; lid = malloc(lcap * sizeof *lid); lw = malloc(lcap); }
     uint64_t *prior = calloc(KM, sizeof(uint64_t)); int wlo = 2; /* wrapped log: the leader's score is prior + misses from window wlo */
+    /* VQSIM_DUMP=t1,t2,...:PREFIX (study only): before requests t1, t2, ... (ascending) write the live cache's resident
+       objects to PREFIX-<t>.u32. Changes nothing else. */
+    uint64_t dump_t[256]; int dump_n = 0, dump_i = 0; char dump_pre[4000] = "";
+    {
+        const char *dv = getenv("VQSIM_DUMP"), *colon = dv ? strchr(dv, ':') : NULL;
+        if (colon) {
+            snprintf(dump_pre, sizeof dump_pre, "%s", colon + 1);
+            const char *p = dv; char *endp;
+            while (p < colon && dump_n < 256) { dump_t[dump_n++] = strtoull(p, &endp, 10); p = endp; if (*p == ',') p++; else break; }
+        }
+    }
     for (uint64_t t = 0; t < n; t++) {
         int w = (int)((t * (uint64_t)windows) / n);
+        while (dump_i < dump_n && dump_t[dump_i] < t) dump_i++;
+        if (dump_i < dump_n && dump_t[dump_i] == t) {
+            char fn[4200]; snprintf(fn, sizeof fn, "%s-%lu.u32", dump_pre, (unsigned long)t);
+            FILE *df = fopen(fn, "wb");
+            if (df) { for (uint32_t y = 0; y < n_obj; y++) if (o[y].stage >= 0) fwrite(&y, sizeof y, 1, df); fclose(df); }
+            dump_i++;
+        }
         if (screen > 0 && t == split) { /* score every pool design on the logged prefix, keep the best `screen` warm */
             uint64_t *score = malloc((uint64_t)(P ? P : 1) * sizeof(uint64_t)), *tw = calloc(windows, sizeof(uint64_t));
             Obj *to = malloc((uint64_t)(n_s ? n_s : 1) * sizeof(Obj)); Sim tmp;
